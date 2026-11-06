@@ -31,7 +31,7 @@ Never commit it. The dashboard and every agent use the same token.
 Needs Python 3.11 or newer, which Raspberry Pi OS (Debian 13) and Ubuntu 24.04 have.
 
 ```sh
-rsync -a --delete --exclude tests --exclude '*.egg-info' agent/ <pi>:~/rpidash-agent/
+rsync -a --delete --exclude tests --exclude build --exclude '*.egg-info' agent/ <pi>:~/rpidash-agent/
 ssh -t <pi> "cd ~/rpidash-agent && sudo RPIDASH_TOKEN=$(cat ~/.config/rpidash/token) \
   RPIDASH_SERVICES='cpu-performance,user:oled-stats' ./install.sh"
 ```

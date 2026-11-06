@@ -22,7 +22,10 @@ if [[ ! -x $PREFIX/venv/bin/python ]]; then
     python3 -m venv "$PREFIX/venv"
   fi
 fi
+# Build from clean sources: a stale root-owned build/ dir could install old code.
+rm -rf "$SRC/build" "$SRC"/*.egg-info
 "$PREFIX/venv/bin/pip" install --quiet --upgrade "$SRC"
+rm -rf "$SRC/build" "$SRC"/*.egg-info
 
 if [[ ! -f $CONF ]]; then
   : "${RPIDASH_TOKEN:?set RPIDASH_TOKEN for the first install}"
