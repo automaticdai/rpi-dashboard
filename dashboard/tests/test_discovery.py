@@ -56,3 +56,13 @@ async def test_rediscovery_moves_host_and_rate_limits(tmp_path):
     clock.t += 2
     await rd.maybe_run({"A"})
     assert calls  # scanned again after 300 s
+
+
+async def test_rediscovery_save_failure_still_updates_in_memory(tmp_path, monkeypatch):
+    reg = Registry(tmp_path / "pis.json")
+    reg.upsert(Pi(id="A", hostname="h-A", host="192.168.9.5", port=8765, spec=None, added="x", last_seen=None))
+    monkeypatch.setattr(reg, "save", lambda: (_ for _ in ()).throw(OSError("disk full")))
+    rd = Rediscovery(reg, AgentClient("tok", transport=httpx.MockTransport(agent_at({"192.168.9.6": "A"}))),
+                     "192.168.9.4/30")
+    assert await rd.maybe_run({"A"}) == {"A": "192.168.9.6"}
+    assert reg.get("A").host == "192.168.9.6"

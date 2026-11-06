@@ -129,3 +129,51 @@ def test_put_order(make_client):
         assert c.put("/api/order", json={"ids": ["A", "B"]}, headers={"Origin": "http://evil.example"}).status_code == 403
     reg2 = type(reg)(reg.path); reg2.load()
     assert [p.id for p in reg2.all()] == ["B", "A"]
+
+
+def test_overview_survives_registry_save_failure(make_client, monkeypatch):
+    c, reg, _ = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    monkeypatch.setattr(reg, "save", lambda: (_ for _ in ()).throw(OSError("read-only file system")))
+    with c:
+        assert c.get("/api/pis").status_code == 200
+        assert c.get("/api/pis").status_code == 200
+
+
+def test_last_seen_saved_only_when_status_changes(make_client, monkeypatch):
+    c, reg, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    saves = []
+    real = reg.save
+    monkeypatch.setattr(reg, "save", lambda: (saves.append(1), real()))
+    with c:
+        c.get("/api/pis")          # first poll: status becomes known -> save
+        n = len(saves)
+        for _ in range(3):
+            c.get("/api/pis")      # nothing changed -> no saves
+        assert len(saves) == n and n >= 1
+        fake.behaviours["10.0.0.1"] = "down"
+        c.get("/api/pis")          # online -> offline -> save
+        assert len(saves) == n + 1
+
+
+def test_agent_called_on_registered_port(make_client):
+    pi = make_pi("A", "10.0.0.1")
+    pi.port = 9999
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[pi])
+    with c:
+        assert c.get("/api/pis").json()[0]["status"] == "online"
+    assert {r.url.port for r in fake.requests} == {9999}
+
+
+def test_shutdown_proxy(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        assert c.post("/api/pis/A/shutdown").status_code == 200
+        assert c.post("/api/pis/A/shutdown", headers={"Origin": "http://evil.example"}).status_code == 403
+    assert [r.url.path for r in fake.requests if r.method == "POST"] == ["/shutdown"]
+
+
+def test_shutdown_refused_when_address_now_belongs_to_another_pi(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")], ids={"10.0.0.1": "B"})
+    with c:
+        assert c.post("/api/pis/A/shutdown").status_code == 409
+    assert not [r for r in fake.requests if r.method == "POST"]

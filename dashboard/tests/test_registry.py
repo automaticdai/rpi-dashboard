@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from rpidash_dashboard.registry import Pi, Registry
 
@@ -102,3 +103,22 @@ def test_load_file_without_order_field(tmp_path):
     path.write_text(json.dumps({"pis": [old]}))
     r = Registry(path); r.load()
     assert [p.id for p in r.all()] == ["A"]
+
+
+@pytest.mark.parametrize("bad_field", [{"hostname": None}, {"port": "x"}, {"spec": "nope"}])
+def test_registry_bad_field_types(tmp_path, bad_field):
+    path = tmp_path / "pis.json"
+    good = {"id": "A", "hostname": "a", "host": "h", "port": 8765, "spec": None, "added": "x", "last_seen": None}
+    path.write_text(json.dumps({"pis": [good | bad_field]}))
+    r = Registry(path); r.load()
+    assert r.all() == []
+    assert (tmp_path / "pis.json.bak").exists()
+
+
+def test_registry_unreadable_corrupt_file_does_not_crash(tmp_path, monkeypatch):
+    import os
+    path = tmp_path / "pis.json"
+    path.write_text("{not json")
+    monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(PermissionError("read-only")))
+    r = Registry(path); r.load()
+    assert r.all() == []

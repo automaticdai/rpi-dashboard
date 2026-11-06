@@ -23,6 +23,15 @@ class Pi:
     order: int = 0  # position on the overview; set by drag-to-reorder
 
 
+def _valid(p: Pi) -> bool:
+    def opt(v, t):
+        return v is None or isinstance(v, t)
+    return (isinstance(p.id, str) and isinstance(p.hostname, str) and isinstance(p.host, str)
+            and isinstance(p.port, int) and not isinstance(p.port, bool) and opt(p.spec, dict)
+            and isinstance(p.added, str) and opt(p.last_seen, str)
+            and isinstance(p.order, int) and not isinstance(p.order, bool))
+
+
 class Registry:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
@@ -35,12 +44,16 @@ class Registry:
         try:
             raw = json.loads(self.path.read_text())
             pis = [Pi(**d) for d in raw["pis"]]
-            if not all(isinstance(p.id, str) and isinstance(p.host, str) for p in pis):
-                raise ValueError("bad field types")
+            bad = [p for p in pis if not _valid(p)]
+            if bad:
+                raise ValueError(f"bad field types in entry {bad[0].id!r}")
         except (OSError, ValueError, KeyError, TypeError) as e:
             bak = self.path.with_name(self.path.name + ".bak")
-            os.replace(self.path, bak)
-            log.warning("could not read %s (%s); moved it to %s and started empty", self.path, e, bak)
+            try:
+                os.replace(self.path, bak)
+                log.warning("could not read %s (%s); moved it to %s and started empty", self.path, e, bak)
+            except OSError as move_err:
+                log.warning("could not read %s (%s) or move it aside (%s); started empty", self.path, e, move_err)
             return
         self._pis = {p.id: p for p in pis}
 

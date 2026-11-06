@@ -52,6 +52,9 @@ class Rediscovery:
                     pi.host = ip
                     moved[pi.id] = ip
             if moved:
-                self.registry.save()
                 log.info("rediscovered: %s", moved)
+                try:
+                    self.registry.save()
+                except OSError as e:
+                    log.warning("could not save %s: %s", self.registry.path, e)
             return moved

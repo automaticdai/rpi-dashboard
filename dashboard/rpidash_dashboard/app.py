@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -22,7 +23,8 @@ from .discovery import Rediscovery, scan
 from .registry import Pi, Registry
 from .status import health_warnings
 
-SAVE_EVERY_S = 60.0
+# last_seen alone only forces a write this often; status changes are written at once.
+SAVE_EVERY_S = 3600.0
 HERE = Path(__file__).parent
 
 
@@ -45,7 +47,14 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         registry.load()
     agents = client or AgentClient(cfg.token, port=cfg.agent_port)
     rediscovery = Rediscovery(registry, agents, cfg.subnet)
-    state = {"last_save": 0.0}
+    state = {"last_save": 0.0, "status": {}}
+    log = logging.getLogger("rpidash_dashboard")
+
+    def safe_save() -> None:
+        try:
+            registry.save()
+        except OSError as e:  # e.g. read-only or full disk: keep serving, just don't persist
+            log.warning("could not save %s: %s", registry.path, e)
     background: set[asyncio.Task] = set()
 
     @asynccontextmanager
@@ -101,7 +110,7 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     async def poll(pi: Pi) -> dict:
         status, live = "offline", None
         try:
-            live = await asyncio.wait_for(agents.live(pi.host), call_timeout())
+            live = await asyncio.wait_for(agents.live(pi.host, pi.port), call_timeout())
             if live.get("id", pi.id) != pi.id:
                 live = None  # its address now belongs to another Pi: treat as offline so rediscovery runs
             else:
@@ -118,8 +127,11 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     @app.get("/api/pis")
     async def list_pis():
         rows = await asyncio.gather(*(poll(p) for p in registry.all()))
-        if time.monotonic() - state["last_save"] >= SAVE_EVERY_S:
-            registry.save()
+        statuses = {r["id"]: r["status"] for r in rows}
+        changed = statuses != state["status"]
+        state["status"] = statuses
+        if changed or time.monotonic() - state["last_save"] >= SAVE_EVERY_S:
+            safe_save()
             state["last_save"] = time.monotonic()
         offline = {r["id"] for r in rows if r["status"] == "offline"}
         if offline:
@@ -131,7 +143,7 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     @app.get("/api/pis/{pi_id}/history")
     async def pi_history(pi_id: str, range: str = "1h"):
         pi = get_pi(pi_id)
-        return await agent_call(agents.history(pi.host, range))
+        return await agent_call(agents.history(pi.host, range, pi.port))
 
     @app.post("/api/pis")
     async def add_pi(body: AddPi):
@@ -142,20 +154,20 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         pi = Pi(id=health["id"], hostname=health.get("hostname") or host, host=host, port=cfg.agent_port,
                 spec=spec, added=old.added if old else _now_iso(), last_seen=_now_iso())
         registry.upsert(pi)
-        registry.save()
+        safe_save()
         return asdict(pi)
 
     @app.delete("/api/pis/{pi_id}", status_code=204)
     async def delete_pi(pi_id: str):
         if not registry.remove(pi_id):
             raise HTTPException(404, "unknown Pi")
-        registry.save()
+        safe_save()
         return Response(status_code=204)
 
     @app.put("/api/order", status_code=204)
     async def set_order(body: Order):
         registry.reorder(body.ids)
-        registry.save()
+        safe_save()
         return Response(status_code=204)
 
     @app.post("/api/scan")
@@ -164,21 +176,28 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         return [{"host": h, "id": d["id"], "hostname": d.get("hostname"), "known": registry.get(d["id"]) is not None}
                 for h, d in found]
 
-    async def verified_host(pi_id: str) -> str:
+    async def verified_pi(pi_id: str) -> Pi:
         """Confirm the Pi at the stored address is still this Pi before acting on it."""
         pi = get_pi(pi_id)
-        health = await agent_call(agents.health(pi.host))
+        health = await agent_call(agents.health(pi.host, port=pi.port))
         if health["id"] != pi.id:
             raise HTTPException(409, f"{pi.host} now belongs to {health.get('hostname', 'another Pi')}; "
                                      f"wait for {pi.hostname} to be found again")
-        return pi.host
+        return pi
 
     @app.post("/api/pis/{pi_id}/reboot")
     async def reboot(pi_id: str):
-        return await agent_call(agents.reboot(await verified_host(pi_id)))
+        pi = await verified_pi(pi_id)
+        return await agent_call(agents.reboot(pi.host, pi.port))
+
+    @app.post("/api/pis/{pi_id}/shutdown")
+    async def shutdown(pi_id: str):
+        pi = await verified_pi(pi_id)
+        return await agent_call(agents.shutdown(pi.host, pi.port))
 
     @app.post("/api/pis/{pi_id}/services/{entry}/{action}")
     async def service_action(pi_id: str, entry: str, action: str):
-        return await agent_call(agents.service_action(await verified_host(pi_id), entry, action))
+        pi = await verified_pi(pi_id)
+        return await agent_call(agents.service_action(pi.host, entry, action, pi.port))
 
     return app
