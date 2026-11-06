@@ -4,6 +4,10 @@ All your Pis, in one place. A small agent on each Raspberry Pi reports live stat
 7 days of history in memory, and can reboot the Pi or restart allowlisted services. A web
 dashboard shows every Pi at a glance, with charts and actions.
 
+![Overview: one card per Pi with temperature, CPU, RAM and disk while all five Pis are under load](docs/screenshots/overview.png)
+
+![Detail page for rpi-cm5: live values, top processes, hardware, and one-hour charts for temperature, CPU, RAM, disk, network and fan speed](docs/screenshots/pi-detail.png)
+
 ```
 Browser ──▶ dashboard (desktop or a Pi) ──HTTP :8765 + token──▶ agent on each Pi
                └─ pis.json (the Pis it knows)
