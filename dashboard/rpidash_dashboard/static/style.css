@@ -28,7 +28,7 @@
 * { box-sizing: border-box; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
-  font: 16px/1.45 "Atkinson Hyperlegible", system-ui, sans-serif;
+  font: 16px/1.45 "Barlow", system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
 }
 a { color: inherit; }
@@ -79,8 +79,18 @@ main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 .card-head { display: flex; align-items: baseline; gap: 8px; }
 .card-head h2 { font-size: 1.2rem; }
 .temp { margin-left: auto; font-size: 1.6rem; font-weight: 700; line-height: 1; }
-.model { color: var(--muted); font-size: .9rem; margin: 2px 0 12px; }
-.bars { display: grid; grid-template-columns: 3.2rem 1fr 3.4rem; gap: 6px 8px; align-items: center; font-size: .9rem; }
+.card-head h2, .temp, .brand, .pi-title { font-weight: 600; letter-spacing: .01em; }
+.model { color: var(--muted); font-size: .9rem; margin: 2px 0 0; }
+.hw { color: var(--off); font-size: .85rem; margin: 0 0 12px; }
+.of { color: var(--off); font-size: .85em; }
+.grip {
+  position: relative; z-index: 1; padding: 0 4px; border: 0; background: transparent;
+  color: var(--off); cursor: grab; font-size: 1.1rem; line-height: 1;
+}
+.grip:hover, .grip:focus-visible { color: var(--accent); }
+.card.dragging { opacity: .45; border-style: dashed; }
+.card[draggable="true"] { cursor: grab; }
+.bars { display: grid; grid-template-columns: 3.2rem 1fr 6.6rem; gap: 6px 8px; align-items: center; font-size: .9rem; }
 .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); }
 .bar > i.high { background: var(--warn); }

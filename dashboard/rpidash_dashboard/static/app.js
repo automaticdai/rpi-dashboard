@@ -48,23 +48,49 @@ function ago(iso) {
   return s < 90 ? "just now" : `${duration(s)} ago`;
 }
 
-// 30 °C -> cool blue, 80 °C -> red. This colour is the card's left edge.
+// Card edge colour: blue when cool, amber when warm, red when hot. Never green.
+// A neutral slate step sits between blue and amber: blending them directly gives a muddy green.
+const HEAT_STOPS = [[35, [59, 130, 196]], [48, [140, 148, 165]], [58, [224, 165, 38]], [70, [214, 69, 65]]];
 function heat(t) {
   if (t == null) return null;
-  const x = Math.min(1, Math.max(0, (t - 30) / 50));
-  return `hsl(${Math.round(210 - 210 * x)} 70% 50%)`;
+  if (t <= HEAT_STOPS[0][0]) return `rgb(${HEAT_STOPS[0][1]})`;
+  for (let i = 1; i < HEAT_STOPS.length; i++) {
+    const [t1, c1] = HEAT_STOPS[i], [t0, c0] = HEAT_STOPS[i - 1];
+    if (t <= t1) {
+      const x = (t - t0) / (t1 - t0);
+      return `rgb(${c0.map((v, k) => Math.round(v + (c1[k] - v) * x))})`;
+    }
+  }
+  return `rgb(${HEAT_STOPS.at(-1)[1]})`;
 }
 
 const memPct = (s) => (s && s.mem_total ? (s.mem_used / s.mem_total) * 100 : null);
 const level = (v) => (v == null ? "" : v >= 90 ? "crit" : v >= 75 ? "high" : "");
 
+// Pi RAM is sold in power-of-two sizes; the kernel reports a bit less (e.g. 7.6 GiB on an 8 GB board).
+function ramSize(n) {
+  if (!n) return null;
+  const mib = 2 ** Math.ceil(Math.log2(n / 2 ** 20));
+  return mib >= 1024 ? `${mib / 1024} GB` : `${mib} MB`;
+}
+
+function hardwareLine(spec, s) {
+  const parts = [];
+  if (spec.cores) parts.push(`${spec.cores} core${spec.cores === 1 ? "" : "s"}`);
+  const ram = ramSize(spec.ram_total || (s && s.mem_total));
+  if (ram) parts.push(`${ram} RAM`);
+  if (spec.root_size) parts.push(`${bytes(spec.root_size)} disk`);
+  return parts.join(", ");
+}
+
 const WARN_TEXT = { hot: "Running hot", disk: "Disk nearly full", mem: "RAM nearly full", throttled: "Throttled or under-voltage" };
 const STATUS_TEXT = { online: "Online", offline: "Offline", auth_failed: "Token rejected" };
 
 // ---------- overview ----------
-function bar(label, v) {
+function bar(label, v, of) {
   const w = v == null ? 0 : Math.min(100, v);
-  return `<span>${label}</span><span class="bar"><i class="${level(v)}" style="width:${w}%"></i></span><span class="num">${pct(v)}</span>`;
+  return `<span>${label}</span><span class="bar"><i class="${level(v)}" style="width:${w}%"></i></span>` +
+    `<span class="num">${pct(v)}${of ? ` <span class="of">of ${of}</span>` : ""}</span>`;
 }
 
 function card(p) {
@@ -72,21 +98,25 @@ function card(p) {
   const spec = p.spec || {};
   const el = document.createElement("article");
   el.className = `card ${p.status}`;
+  el.dataset.id = p.id;
+  el.draggable = true;
   const h = s && heat(s.temp_c);
   if (h) el.style.setProperty("--heat", h);
   let body;
   if (s) {
-    body = `<div class="bars">${bar("CPU", s.cpu_pct)}${bar("RAM", memPct(s))}${bar("Disk", s.disk_pct)}</div>
+    body = `<div class="bars">${bar("CPU", s.cpu_pct)}${bar("RAM", memPct(s), ramSize(spec.ram_total || s.mem_total))}${bar("Disk", s.disk_pct, spec.root_size && bytes(spec.root_size))}</div>
       <div class="meta"><span>↓ ${rate(s.net_rx_bps)}</span><span>↑ ${rate(s.net_tx_bps)}</span><span>up ${duration(p.live.uptime_s)}</span></div>`;
   } else {
-    body = `<div class="meta"><span>${esc(spec.os || "")}</span><span>${spec.ram_total ? bytes(spec.ram_total) + " RAM" : ""}</span><span>last seen ${ago(p.last_seen)}</span></div>`;
+    body = `<div class="meta"><span>${esc(spec.os || "")}</span><span>last seen ${ago(p.last_seen)}</span></div>`;
   }
   const chips = p.warnings.map((w) => `<span class="chip ${w === "disk" || w === "mem" ? "warn" : "bad"}">${WARN_TEXT[w] || esc(w)}</span>`);
   if (p.status !== "online") chips.unshift(`<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span>`);
   el.innerHTML = `
-    <div class="card-head"><span class="dot ${p.status}"></span><h2><a class="stretch" href="/pi/${encodeURIComponent(p.id)}">${esc(p.hostname)}</a></h2>
-      <span class="temp">${s ? temp(s.temp_c) : ""}</span></div>
+    <div class="card-head"><span class="dot ${p.status}"></span><h2><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a></h2>
+      <span class="temp">${s ? temp(s.temp_c) : ""}</span>
+      <button class="grip" aria-label="Move ${esc(p.hostname)} (drag, or use arrow keys)" title="Drag to reorder">⠿</button></div>
     <div class="model">${esc(spec.model || p.host)}</div>
+    <div class="hw">${esc(hardwareLine(spec, s))}</div>
     ${body}
     <div class="card-foot">${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
       <button class="small remove" title="Remove from this dashboard">Remove</button></div>`;
@@ -100,11 +130,73 @@ function card(p) {
   return el;
 }
 
+// ---------- drag to reorder ----------
+let dragging = null;
+
+async function saveOrder() {
+  const ids = [...document.querySelectorAll("#pis .card")].map((c) => c.dataset.id);
+  try { await api("PUT", "/api/order", { ids }); } catch (e) { toast(`Couldn't save the order: ${e.message}`); }
+}
+
+function cardAfterPointer(grid, x, y) {
+  // The card whose centre comes after the pointer in reading order (row by row).
+  for (const c of grid.querySelectorAll(".card:not(.dragging)")) {
+    const r = c.getBoundingClientRect();
+    if (y < r.top) return c;
+    if (y <= r.bottom && x < r.left + r.width / 2) return c;
+  }
+  return null;
+}
+
+function setupReorder() {
+  const grid = $("#pis");
+  grid.addEventListener("dragstart", (e) => {
+    const c = e.target.closest(".card");
+    if (!c) return;
+    dragging = c;
+    c.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", c.dataset.id);
+  });
+  grid.addEventListener("dragover", (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const after = cardAfterPointer(grid, e.clientX, e.clientY);
+    if (after !== dragging.nextElementSibling) grid.insertBefore(dragging, after);
+  });
+  grid.addEventListener("drop", (e) => e.preventDefault());
+  grid.addEventListener("dragend", () => {
+    if (!dragging) return;
+    dragging.classList.remove("dragging");
+    dragging = null;
+    saveOrder();
+  });
+  grid.addEventListener("keydown", (e) => {
+    const grip = e.target.closest(".grip");
+    if (!grip) return;
+    const c = grip.closest(".card");
+    const back = e.key === "ArrowLeft" || e.key === "ArrowUp";
+    const fwd = e.key === "ArrowRight" || e.key === "ArrowDown";
+    if (!back && !fwd) return;
+    e.preventDefault();
+    if (back && c.previousElementSibling) grid.insertBefore(c, c.previousElementSibling);
+    else if (fwd && c.nextElementSibling) grid.insertBefore(c.nextElementSibling, c);
+    else return;
+    grip.focus();
+    saveOrder();
+  });
+}
+
 async function refreshOverview() {
+  if (dragging) return; // don't rebuild cards under the pointer
   let pis;
   try { pis = await api("GET", "/api/pis"); } catch (e) { toast(`Couldn't load Pis: ${e.message}`); return; }
+  if (dragging) return;
   const grid = $("#pis");
+  const focusedGrip = document.activeElement && document.activeElement.closest(".grip") &&
+    document.activeElement.closest(".card").dataset.id;
   grid.replaceChildren(...pis.map(card));
+  if (focusedGrip) grid.querySelector(`.card[data-id="${CSS.escape(focusedGrip)}"] .grip`)?.focus();
   $("#empty").hidden = pis.length > 0;
   const online = pis.filter((p) => p.status === "online").length;
   $("#summary").textContent = pis.length ? `${online} of ${pis.length} online` : "";
@@ -146,6 +238,7 @@ function overview() {
     } catch (err) { toast(`Scan failed: ${err.message}`); }
     btn.disabled = false; btn.textContent = "Scan network";
   });
+  setupReorder();
   refreshOverview();
   setInterval(refreshOverview, REFRESH_MS);
 }
