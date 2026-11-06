@@ -119,3 +119,13 @@ def test_rejects_cross_origin_post(make_client):
         assert c.delete("/api/pis/A", headers={"Origin": "http://evil.example"}).status_code == 403
         assert c.post("/api/pis/A/reboot", headers={"Origin": "http://testserver"}).status_code == 200
     assert len([r for r in fake.requests if r.method == "POST"]) == 1
+
+
+def test_put_order(make_client):
+    c, reg, _ = make_client({}, pis=[make_pi("A", "10.0.0.1"), make_pi("B", "10.0.0.2")])
+    with c:
+        assert c.put("/api/order", json={"ids": ["B", "A"]}).status_code == 204
+        assert [p["id"] for p in c.get("/api/pis").json()] == ["B", "A"]
+        assert c.put("/api/order", json={"ids": ["A", "B"]}, headers={"Origin": "http://evil.example"}).status_code == 403
+    reg2 = type(reg)(reg.path); reg2.load()
+    assert [p.id for p in reg2.all()] == ["B", "A"]

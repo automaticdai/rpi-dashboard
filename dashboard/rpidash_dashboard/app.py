@@ -30,6 +30,10 @@ class AddPi(BaseModel):
     host: str
 
 
+class Order(BaseModel):
+    ids: list[str]
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -145,6 +149,12 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     async def delete_pi(pi_id: str):
         if not registry.remove(pi_id):
             raise HTTPException(404, "unknown Pi")
+        registry.save()
+        return Response(status_code=204)
+
+    @app.put("/api/order", status_code=204)
+    async def set_order(body: Order):
+        registry.reorder(body.ids)
         registry.save()
         return Response(status_code=204)
 

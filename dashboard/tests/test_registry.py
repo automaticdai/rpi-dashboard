@@ -1,3 +1,5 @@
+import json
+
 from rpidash_dashboard.registry import Pi, Registry
 
 
@@ -15,7 +17,7 @@ def test_registry_roundtrip(tmp_path):
     r.save()
     r2 = Registry(path)
     r2.load()
-    assert [p.hostname for p in r2.all()] == ["rpi-3", "rpi-zero-2"]
+    assert [p.hostname for p in r2.all()] == ["rpi-zero-2", "rpi-3"]  # added order, not name order
     assert r2.all() == r.all()
 
 
@@ -61,3 +63,42 @@ def test_remove(tmp_path):
     r.upsert(pi("A", "a"))
     assert r.remove("A") is True
     assert r.remove("A") is False
+
+
+def test_new_pis_go_last_and_reorder_persists(tmp_path):
+    path = tmp_path / "pis.json"
+    r = Registry(path)
+    for id_, name in [("A", "a"), ("B", "b"), ("C", "c")]:
+        r.upsert(pi(id_, name))
+    assert [p.id for p in r.all()] == ["A", "B", "C"]
+    r.reorder(["C", "A", "B"])
+    r.save()
+    r.upsert(pi("D", "0-sorts-first-by-name"))
+    assert [p.id for p in r.all()] == ["C", "A", "B", "D"]
+    r2 = Registry(path); r2.load()
+    assert [p.id for p in r2.all()] == ["C", "A", "B"]
+
+
+def test_reorder_ignores_unknown_and_keeps_unlisted_after(tmp_path):
+    r = Registry(tmp_path / "pis.json")
+    for id_ in "ABC":
+        r.upsert(pi(id_, id_.lower()))
+    r.reorder(["C", "Z"])
+    assert [p.id for p in r.all()] == ["C", "A", "B"]
+
+
+def test_upsert_existing_keeps_position(tmp_path):
+    r = Registry(tmp_path / "pis.json")
+    for id_ in "AB":
+        r.upsert(pi(id_, id_.lower()))
+    r.reorder(["B", "A"])
+    r.upsert(pi("B", "b", host="192.168.0.99"))
+    assert [p.id for p in r.all()] == ["B", "A"]
+
+
+def test_load_file_without_order_field(tmp_path):
+    path = tmp_path / "pis.json"
+    old = {"id": "A", "hostname": "a", "host": "h", "port": 8765, "spec": None, "added": "x", "last_seen": None}
+    path.write_text(json.dumps({"pis": [old]}))
+    r = Registry(path); r.load()
+    assert [p.id for p in r.all()] == ["A"]

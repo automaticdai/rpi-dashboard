@@ -20,6 +20,7 @@ class Pi:
     spec: dict | None
     added: str
     last_seen: str | None
+    order: int = 0  # position on the overview; set by drag-to-reorder
 
 
 class Registry:
@@ -56,13 +57,26 @@ class Registry:
             raise
 
     def all(self) -> list[Pi]:
-        return sorted(self._pis.values(), key=lambda p: (p.hostname, p.id))
+        return sorted(self._pis.values(), key=lambda p: (p.order, p.hostname, p.id))
 
     def get(self, id: str) -> Pi | None:
         return self._pis.get(id)
 
     def upsert(self, pi: Pi) -> None:
+        """Add or replace a Pi. An existing Pi keeps its position; a new one goes last."""
+        old = self._pis.get(pi.id)
+        if old is not None:
+            pi.order = old.order
+        else:
+            pi.order = max((p.order for p in self._pis.values()), default=-1) + 1
         self._pis[pi.id] = pi
+
+    def reorder(self, ids: list[str]) -> None:
+        """Put the given Pis first, in that order; unknown ids are ignored, unlisted Pis follow."""
+        first = [self._pis[i] for i in dict.fromkeys(ids) if i in self._pis]
+        rest = [p for p in self.all() if p not in first]
+        for n, p in enumerate(first + rest):
+            p.order = n
 
     def remove(self, id: str) -> bool:
         return self._pis.pop(id, None) is not None
