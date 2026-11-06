@@ -273,6 +273,7 @@ function initCharts() {
   charts.cpu = makeChart("c-cpu", [{ label: "CPU", borderColor: accent }], { min: 0, max: 100 });
   charts.mem = makeChart("c-mem", [{ label: "RAM", borderColor: accent }], { min: 0, max: 100 });
   charts.disk = makeChart("c-disk", [{ label: "Disk", borderColor: accent }], { min: 0, max: 100 });
+  charts.fan = makeChart("c-fan", [{ label: "rpm", borderColor: cssVar("--warn") }], { min: 0 });
   charts.net = makeChart("c-net", [{ label: "Download", borderColor: accent }, { label: "Upload", borderColor: ok }], { min: 0, tick: (v) => rate(v) });
 }
 
@@ -295,6 +296,11 @@ async function loadHistory(id) {
   set(charts.mem, h.mem_used.map((u, i) => (h.mem_total[i] ? (u / h.mem_total[i]) * 100 : null)));
   set(charts.disk, h.disk_pct);
   set(charts.net, h.net_rx_bps, h.net_tx_bps);
+  const fan = h.fan_rpm || [];
+  const hasFan = fan.some((v) => v != null);
+  set(charts.fan, fan);
+  $("#c-fan").hidden = !hasFan && h.ts.length > 0;
+  $("#no-fan").hidden = hasFan || h.ts.length === 0;
   if (h.since == null) {
     $("#since").textContent = "No readings yet.";
   } else {
@@ -313,6 +319,7 @@ function renderLive(p) {
     ["Status", STATUS_TEXT[p.status]], ["Temperature", temp(s.temp_c)], ["CPU", `${pct(s.cpu_pct)} (load ${s.load1.toFixed(2)})`],
     ["RAM", `${bytes(s.mem_used)} of ${bytes(s.mem_total)}`], ["Swap", bytes(s.swap_used)], ["Disk", pct(s.disk_pct)],
     ["Network", `↓ ${rate(s.net_rx_bps)}  ↑ ${rate(s.net_tx_bps)}`], ["Uptime", duration(p.live.uptime_s)],
+    ["Fan", s.fan_rpm == null ? "No sensor" : `${s.fan_rpm} rpm`],
     ["Throttling", s.throttled == null ? "Unknown" : s.throttled ? `Yes (0x${s.throttled.toString(16)})` : "None"],
   ] : [["Status", STATUS_TEXT[p.status]], ["Last seen", ago(p.last_seen)]];
   $("#live").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("") +

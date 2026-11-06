@@ -27,7 +27,7 @@ class Runner:
 
 def sample(ts):
     return Sample(ts=ts, cpu_pct=5.0, load1=0.1, mem_used=1, mem_total=2, swap_used=0, disk_pct=10.0,
-                  net_rx_bps=0.0, net_tx_bps=0.0, temp_c=45.0, throttled=0)
+                  net_rx_bps=0.0, net_tx_bps=0.0, temp_c=45.0, throttled=0, fan_rpm=None)
 
 
 @pytest.fixture
@@ -139,3 +139,9 @@ def test_successful_requests_not_logged(agent, capfd):
     assert "GET" not in capfd.readouterr().err
     call(base + "/live", token="wrong")
     assert "401" in capfd.readouterr().err
+
+
+def test_live_lists_top_ten_processes():
+    import inspect
+    from rpidash_agent.collect import top_processes
+    assert inspect.signature(top_processes).parameters["n"].default == 10

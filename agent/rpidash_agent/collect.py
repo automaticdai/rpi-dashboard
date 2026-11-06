@@ -29,6 +29,7 @@ class Sample:
     net_tx_bps: float
     temp_c: float | None
     throttled: int | None
+    fan_rpm: int | None = None
 
 
 FIELDS: tuple[str, ...] = tuple(f.name for f in fields(Sample))
@@ -54,6 +55,17 @@ def read_temperature(root: Path = ROOT) -> float | None:
     out = _vcgencmd("measure_temp")
     m = re.search(r"temp=([\d.]+)", out or "")
     return float(m.group(1)) if m else None
+
+
+def read_fan_rpm(root: Path = ROOT) -> int | None:
+    """Fastest fan reported by hwmon (e.g. the CM5/Pi 5 `pwmfan`); None if there's no fan sensor."""
+    speeds = []
+    for f in (root / "sys/class/hwmon").glob("hwmon*/fan*_input"):
+        try:
+            speeds.append(int(f.read_text().strip()))
+        except (OSError, ValueError):
+            continue
+    return max(speeds) if speeds else None
 
 
 def parse_throttled(text: str) -> int | None:
@@ -135,7 +147,7 @@ def read_spec(root: Path = ROOT) -> dict:
 _proc_cache: dict[int, psutil.Process] = {}
 
 
-def top_processes(n: int = 5) -> list[dict]:
+def top_processes(n: int = 10) -> list[dict]:
     """Top processes by CPU since the previous call (cached Process objects)."""
     seen, rows = set(), []
     for p in psutil.process_iter(["pid", "name"]):
@@ -191,4 +203,5 @@ class Collector:
             net_tx_bps=tx,
             temp_c=read_temperature(),
             throttled=read_throttled(),
+            fan_rpm=read_fan_rpm(),
         )

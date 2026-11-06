@@ -4,9 +4,9 @@ from rpidash_agent.collect import Sample
 from rpidash_agent.history import History
 
 
-def s(ts, cpu=1.0, temp=40.0, throttled=0):
+def s(ts, cpu=1.0, temp=40.0, throttled=0, fan=None):
     return Sample(ts=float(ts), cpu_pct=cpu, load1=0.1, mem_used=100, mem_total=1000, swap_used=0,
-                  disk_pct=50.0, net_rx_bps=0.0, net_tx_bps=0.0, temp_c=temp, throttled=throttled)
+                  disk_pct=50.0, net_rx_bps=0.0, net_tx_bps=0.0, temp_c=temp, throttled=throttled, fan_rpm=fan)
 
 
 def test_empty():
@@ -74,3 +74,15 @@ def test_query_speed():
     q = h.query(604800, now=604790)
     assert time.perf_counter() - t0 < 1.0
     assert 250 <= len(q["ts"]) <= 300
+
+
+def test_fan_rpm_mean_and_unknown():
+    h = History()
+    h.append(s(0, fan=1500))
+    h.append(s(1, fan=1700))
+    h.append(s(2, fan=None))
+    assert h.query(3600, now=5)["fan_rpm"] == [1600.0]
+    h2 = History()
+    h2.append(s(0, fan=None))
+    assert h2.query(3600, now=5)["fan_rpm"] == [None]
+    assert h2.latest().fan_rpm is None

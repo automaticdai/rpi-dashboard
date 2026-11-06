@@ -76,3 +76,16 @@ def test_top_processes_tolerates_concurrent_cache_removal(monkeypatch):
     monkeypatch.setattr(collect, "_proc_cache", Racy())
     monkeypatch.setattr(psutil, "process_iter", lambda attrs=None: iter([]))
     assert collect.top_processes() == []
+
+
+def test_read_fan_rpm(tmp_path):
+    from rpidash_agent.collect import read_fan_rpm
+    assert read_fan_rpm(root=tmp_path) is None
+    d = tmp_path / "sys/class/hwmon/hwmon3"
+    d.mkdir(parents=True)
+    (d / "fan1_input").write_text("1585\n")
+    assert read_fan_rpm(root=tmp_path) == 1585
+
+
+def test_sample_has_fan_field():
+    assert "fan_rpm" in collect.FIELDS
