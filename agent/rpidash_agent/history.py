@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import threading
 from array import array
 from bisect import bisect_left
 
@@ -42,12 +43,15 @@ class History:
         self._idx = 0  # next write position
         self._count = 0
         self._arrays = {n: array(_TYPECODES.get(n, "f"), [0]) * capacity for n in FIELDS}
+        # The sampler thread appends while HTTP handler threads read.
+        self._lock = threading.Lock()
 
     def append(self, s: Sample) -> None:
-        for n in FIELDS:
-            self._arrays[n][self._idx] = _encode(n, getattr(s, n))
-        self._idx = (self._idx + 1) % self.capacity
-        self._count = min(self._count + 1, self.capacity)
+        with self._lock:
+            for n in FIELDS:
+                self._arrays[n][self._idx] = _encode(n, getattr(s, n))
+            self._idx = (self._idx + 1) % self.capacity
+            self._count = min(self._count + 1, self.capacity)
 
     def __len__(self) -> int:
         return self._count
@@ -62,26 +66,33 @@ class History:
         return a[self._idx:] + a[: self._idx]
 
     def latest(self) -> Sample | None:
-        if not self._count:
-            return None
-        i = (self._idx - 1) % self.capacity
-        return Sample(**{n: _decode(n, self._arrays[n][i]) for n in FIELDS})
+        with self._lock:
+            if not self._count:
+                return None
+            i = (self._idx - 1) % self.capacity
+            return Sample(**{n: _decode(n, self._arrays[n][i]) for n in FIELDS})
 
     def oldest_ts(self) -> float | None:
+        with self._lock:
+            return self._oldest_ts()
+
+    def _oldest_ts(self) -> float | None:
         if not self._count:
             return None
         i = 0 if self._count < self.capacity else self._idx
         return self._arrays["ts"][i]
 
     def query(self, range_s: int, now: float, points: int = 300) -> dict:
-        out: dict = {"since": self.oldest_ts(), **{n: [] for n in FIELDS}}
-        if not self._count:
+        with self._lock:  # take a consistent snapshot; downsample outside the lock
+            since = self._oldest_ts()
+            cols = {n: self._ordered(n) for n in FIELDS} if self._count else None
+        out: dict = {"since": since, **{n: [] for n in FIELDS}}
+        if cols is None:
             return out
-        ts = self._ordered("ts")
+        ts = cols["ts"]
         start = bisect_left(ts, now - range_s)
         if start >= len(ts):
             return out
-        cols = {n: self._ordered(n) for n in FIELDS}
         width = range_s / points
         lo = start
         t0 = now - range_s

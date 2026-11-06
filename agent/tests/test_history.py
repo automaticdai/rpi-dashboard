@@ -86,3 +86,34 @@ def test_fan_rpm_mean_and_unknown():
     h2.append(s(0, fan=None))
     assert h2.query(3600, now=5)["fan_rpm"] == [None]
     assert h2.latest().fan_rpm is None
+
+
+def test_query_during_append_sees_consistent_data(monkeypatch):
+    """Force a query to run in the middle of an append (after the new ts is written)."""
+    import threading
+    from rpidash_agent import history as hmod
+    h = History(capacity=5)
+    for t in range(1, 8):  # wrapped buffer
+        h.append(s(t))
+    result = {}
+    real_encode = hmod._encode
+    started = threading.Event()
+
+    def reader():
+        result["q"] = h.query(300, now=10, points=300)  # 1 s buckets: one point per sample
+
+    def encode(name, value):
+        if name == "cpu_pct" and not started.is_set():  # ts already written for this sample
+            started.set()
+            th = threading.Thread(target=reader)
+            th.start()
+            th.join(0.3)  # with a lock the reader waits for us; without one it reads half-written data
+            result["thread"] = th
+        return real_encode(name, value)
+
+    monkeypatch.setattr(hmod, "_encode", encode)
+    h.append(s(8))
+    result["thread"].join(2)
+    q = result["q"]
+    assert q["ts"] in ([3.0, 4.0, 5.0, 6.0, 7.0], [4.0, 5.0, 6.0, 7.0, 8.0])  # before or after, never a mix
+    assert len({len(v) for k, v in q.items() if k != "since"}) == 1

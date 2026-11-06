@@ -65,3 +65,9 @@ def test_reboot():
     r = FakeRunner()
     svc(r).reboot()
     assert r.calls == [["systemctl", "reboot"]]
+
+
+def test_poweroff():
+    r = FakeRunner()
+    svc(r).poweroff()
+    assert r.calls == [["systemctl", "poweroff"]]

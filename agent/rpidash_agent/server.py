@@ -25,11 +25,12 @@ ENTRY_RE = re.compile(r"^(user:)?[A-Za-z0-9@._-]+$")
 
 def make_server(cfg: AgentConfig, history: History, services: Services, *, host: str = "0.0.0.0",
                 port: int | None = None, spec_fn=read_spec, id_fn=machine_id, top_fn=top_processes,
-                reboot_delay: float = 1.0) -> ThreadingHTTPServer:
+                reboot_delay: float = 1.0, request_timeout: float = 10.0) -> ThreadingHTTPServer:
     token = cfg.token.encode()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"rpidash-agent/{__version__}"
+        timeout = request_timeout  # drop idle or half-sent connections so they can't pile up threads
 
         def log_request(self, code="-", size="-"):
             # Only failures are logged: every line lands in journald, which may be on the SD card.
@@ -83,11 +84,12 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
 
         def do_POST(self):
             parts = urlsplit(self.path).path.split("/")
-            if parts == ["", "reboot"]:
+            power = {"reboot": services.reboot, "shutdown": services.poweroff}
+            if len(parts) == 2 and parts[0] == "" and parts[1] in power:
                 if not self._authed():
                     return
                 self._send(202, {"ok": True})
-                threading.Timer(reboot_delay, services.reboot).start()
+                threading.Timer(reboot_delay, power[parts[1]]).start()
                 return
             if len(parts) != 4 or parts[1] != "services":
                 return self._send(404, {"error": "not found"})

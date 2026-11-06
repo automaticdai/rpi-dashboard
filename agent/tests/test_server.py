@@ -145,3 +145,32 @@ def test_live_lists_top_ten_processes():
     import inspect
     from rpidash_agent.collect import top_processes
     assert inspect.signature(top_processes).parameters["n"].default == 10
+
+
+def test_idle_connection_is_closed():
+    import socket
+    cfg = AgentConfig(token=TOKEN)
+    srv = make_server(cfg, History(10), Services([]), host="127.0.0.1", port=0, request_timeout=0.3,
+                      spec_fn=dict, id_fn=lambda: "x", top_fn=list)
+    t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+    t.start()
+    try:
+        c = socket.create_connection(srv.server_address, timeout=3)
+        c.sendall(b"GET /health HTTP/1.1\r\n")  # never finishes the request
+        t0 = time.time()
+        assert c.recv(1024) == b""  # server hung up
+        assert time.time() - t0 < 2
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_shutdown_delayed(agent):
+    base, _, runner = agent
+    assert call(base + "/shutdown", "POST", token="wrong")[0] == 401
+    code, body = call(base + "/shutdown", "POST")
+    assert code == 202 and body == {"ok": True}
+    deadline = time.time() + 1
+    while time.time() < deadline and ["systemctl", "poweroff"] not in runner.calls:
+        time.sleep(0.01)
+    assert ["systemctl", "poweroff"] in runner.calls

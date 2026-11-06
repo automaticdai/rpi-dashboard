@@ -55,3 +55,6 @@ class Services:
 
     def reboot(self) -> None:
         self.runner(["systemctl", "reboot"])
+
+    def poweroff(self) -> None:
+        self.runner(["systemctl", "poweroff"])
