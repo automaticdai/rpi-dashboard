@@ -68,10 +68,22 @@ const memPct = (s) => (s && s.mem_total ? (s.mem_used / s.mem_total) * 100 : nul
 const level = (v) => (v == null ? "" : v >= 90 ? "crit" : v >= 75 ? "high" : "");
 
 // Pi RAM is sold in power-of-two sizes; the kernel reports a bit less (e.g. 7.6 GiB on an 8 GB board).
+function ramBytes(n) {
+  return n ? 2 ** Math.ceil(Math.log2(n / 2 ** 20)) * 2 ** 20 : null;
+}
+
 function ramSize(n) {
   if (!n) return null;
-  const mib = 2 ** Math.ceil(Math.log2(n / 2 ** 20));
+  const mib = ramBytes(n) / 2 ** 20;
   return mib >= 1024 ? `${mib / 1024} GB` : `${mib} MB`;
+}
+
+// "2.1 of 8 GB": both numbers in the total's unit.
+function usedOf(used, total) {
+  if (used == null || !total) return "";
+  const unit = total >= 2 ** 30 ? [2 ** 30, "GB"] : [2 ** 20, "MB"];
+  const fmt = (v) => (v < 10 ? String(Number(v.toFixed(1))) : String(Math.round(v)));
+  return `${fmt(used / unit[0])} of ${fmt(total / unit[0])} ${unit[1]}`;
 }
 
 function hardwareLine(spec, s) {
@@ -87,10 +99,10 @@ const WARN_TEXT = { hot: "Running hot", disk: "Disk nearly full", mem: "RAM near
 const STATUS_TEXT = { online: "Online", offline: "Offline", auth_failed: "Token rejected" };
 
 // ---------- overview ----------
-function bar(label, v, of) {
+function bar(label, v, amount = "") {
   const w = v == null ? 0 : Math.min(100, v);
   return `<span>${label}</span><span class="bar"><i class="${level(v)}" style="width:${w}%"></i></span>` +
-    `<span class="num">${pct(v)}${of ? ` <span class="of">of ${of}</span>` : ""}</span>`;
+    `<span class="of">${amount}</span><span class="num">${pct(v)}</span>`;
 }
 
 function card(p) {
@@ -104,7 +116,7 @@ function card(p) {
   if (h) el.style.setProperty("--heat", h);
   let body;
   if (s) {
-    body = `<div class="bars">${bar("CPU", s.cpu_pct)}${bar("RAM", memPct(s), ramSize(spec.ram_total || s.mem_total))}${bar("Disk", s.disk_pct, spec.root_size && bytes(spec.root_size))}</div>
+    body = `<div class="bars">${bar("CPU", s.cpu_pct)}${bar("RAM", memPct(s), usedOf(s.mem_used, ramBytes(spec.ram_total || s.mem_total)))}${bar("Disk", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size))}</div>
       <div class="meta"><span>↓ ${rate(s.net_rx_bps)}</span><span>↑ ${rate(s.net_tx_bps)}</span><span>up ${duration(p.live.uptime_s)}</span></div>`;
   } else {
     body = `<div class="meta"><span>${esc(spec.os || "")}</span><span>last seen ${ago(p.last_seen)}</span></div>`;
