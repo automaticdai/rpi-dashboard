@@ -66,3 +66,13 @@ def test_read_spec_keys():
               "kernel", "arch", "hostname", "interfaces", "agent_version", "boot_time"]:
         assert k in spec, k
     assert spec["cores"] >= 1
+
+
+def test_top_processes_tolerates_concurrent_cache_removal(monkeypatch):
+    class Racy(dict):
+        def __iter__(self):  # another thread already removed pid 999999
+            return iter(list(super().keys()) + [999999])
+
+    monkeypatch.setattr(collect, "_proc_cache", Racy())
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs=None: iter([]))
+    assert collect.top_processes() == []

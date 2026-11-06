@@ -68,3 +68,14 @@ async def test_history_range_param():
 
     await client(h).history("h", "6h")
     assert seen["url"].endswith("/history?range=6h")
+
+
+async def test_health_sends_no_token():
+    seen = {}
+
+    def h(req):
+        seen["auth"] = req.headers.get("authorization")
+        return httpx.Response(200, json={"app": "rpidash-agent", "id": "x", "hostname": "h", "version": "0"})
+
+    await client(h).health("192.168.0.99")
+    assert seen["auth"] is None

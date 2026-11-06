@@ -31,6 +31,12 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
     class Handler(BaseHTTPRequestHandler):
         server_version = f"rpidash-agent/{__version__}"
 
+        def log_request(self, code="-", size="-"):
+            # Only failures are logged: every line lands in journald, which may be on the SD card.
+            if isinstance(code, int) and code < 400:
+                return
+            super().log_request(code, size)
+
         def log_message(self, fmt, *args):  # stderr only (journald), never a file
             sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
 
@@ -64,6 +70,7 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
             if url.path == "/live":
                 latest = history.latest()
                 return self._send(200, {
+                    "id": id_fn(),
                     "sample": asdict(latest) if latest else None,
                     "top": top_fn(),
                     "services": services.states(),

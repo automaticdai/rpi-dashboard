@@ -153,7 +153,7 @@ def top_processes(n: int = 5) -> list[dict]:
             continue
     for pid in list(_proc_cache):
         if pid not in seen:
-            del _proc_cache[pid]
+            _proc_cache.pop(pid, None)  # another request thread may have removed it already
     rows.sort(key=lambda r: r["cpu_pct"], reverse=True)
     return rows[:n]
 

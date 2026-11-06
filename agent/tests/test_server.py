@@ -125,3 +125,17 @@ def test_reboot_delayed(agent):
     while time.time() < deadline and ["systemctl", "reboot"] not in runner.calls:
         time.sleep(0.01)
     assert ["systemctl", "reboot"] in runner.calls
+
+
+def test_live_includes_agent_id(agent):
+    base, _, _ = agent
+    assert call(base + "/live")[1]["id"] == "mid-1"
+
+
+def test_successful_requests_not_logged(agent, capfd):
+    base, _, _ = agent
+    call(base + "/health", token=None)
+    call(base + "/live")
+    assert "GET" not in capfd.readouterr().err
+    call(base + "/live", token="wrong")
+    assert "401" in capfd.readouterr().err

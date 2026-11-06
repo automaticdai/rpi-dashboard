@@ -19,13 +19,13 @@ class AgentClient:
                  transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.port = port
         self.timeout = timeout
-        self._http = httpx.AsyncClient(transport=transport, timeout=timeout,
-                                       headers={"Authorization": f"Bearer {token}"})
+        self._auth = {"Authorization": f"Bearer {token}"}
+        self._http = httpx.AsyncClient(transport=transport, timeout=timeout)
 
-    async def _req(self, method: str, host: str, path: str, *, params=None, timeout=None) -> dict:
+    async def _req(self, method: str, host: str, path: str, *, params=None, timeout=None, auth=True) -> dict:
         url = f"http://{host}:{self.port}{path}"
         try:
-            r = await self._http.request(method, url, params=params,
+            r = await self._http.request(method, url, params=params, headers=self._auth if auth else None,
                                          timeout=self.timeout if timeout is None else timeout)
         except httpx.HTTPError as e:
             raise AgentError(f"{host}: {type(e).__name__}: {e}") from e
@@ -41,7 +41,8 @@ class AgentClient:
             raise AgentError(f"{host}: invalid JSON") from e
 
     async def health(self, host: str, timeout: float | None = None) -> dict:
-        d = await self._req("GET", host, "/health", timeout=timeout)
+        # /health needs no token, so scans never hand the token to arbitrary LAN hosts.
+        d = await self._req("GET", host, "/health", timeout=timeout, auth=False)
         if not isinstance(d, dict) or d.get("app") != "rpidash-agent" or not d.get("id"):
             raise AgentError(f"{host}: not an rpidash agent")
         return d
