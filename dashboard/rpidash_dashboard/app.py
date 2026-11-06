@@ -6,8 +6,12 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from .client import AgentAuthError, AgentClient, AgentError
@@ -17,6 +21,7 @@ from .registry import Pi, Registry
 from .status import health_warnings
 
 SAVE_EVERY_S = 60.0
+HERE = Path(__file__).parent
 
 
 class AddPi(BaseModel):
@@ -46,6 +51,16 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
 
     app = FastAPI(title="rpi-dashboard", lifespan=lifespan)
     app.state.cfg, app.state.registry = cfg, registry
+    app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    templates = Jinja2Templates(directory=HERE / "templates")
+
+    @app.get("/", response_class=HTMLResponse)
+    async def overview_page(request: Request):
+        return templates.TemplateResponse(request, "overview.html")
+
+    @app.get("/pi/{pi_id}", response_class=HTMLResponse)
+    async def detail_page(request: Request, pi_id: str):
+        return templates.TemplateResponse(request, "detail.html", {"pi": get_pi(pi_id)})
 
     def call_timeout() -> float:
         return agents.timeout + 0.5  # hard cap even if the transport ignores its timeout

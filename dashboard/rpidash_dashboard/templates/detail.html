@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ pi.hostname }} · Pi fleet{% endblock %}
+{% block header %}
+  <h1 class="pi-title"><span id="status-dot" class="dot"></span>{{ pi.hostname }}</h1>
+  <span class="summary">{{ (pi.spec or {}).get("model", "") }} at {{ pi.host }}</span>
+  <button id="reboot" class="danger">Reboot</button>
+{% endblock %}
+{% block main %}
+<div class="detail">
+  <section class="panel">
+    <h2>Now</h2>
+    <dl id="live" class="live"></dl>
+  </section>
+  <section class="panel">
+    <h2>Services</h2>
+    <table id="services" class="table"><tbody></tbody></table>
+    <p id="no-services" class="muted" hidden>No services are allowlisted on this Pi. Add them to services_allowlist in /etc/rpidash-agent.toml.</p>
+  </section>
+  <section class="panel">
+    <h2>Busiest processes</h2>
+    <table id="top" class="table"><thead><tr><th>Process</th><th class="num">CPU</th><th class="num">RAM</th></tr></thead><tbody></tbody></table>
+  </section>
+  <section class="panel">
+    <h2>Hardware</h2>
+    <table id="spec" class="table"><tbody></tbody></table>
+  </section>
+</div>
+<section class="history">
+  <div class="history-head">
+    <h2>History</h2>
+    <div class="seg" role="group" aria-label="Time range">
+      <button data-range="1h" aria-pressed="true">1h</button><button data-range="6h">6h</button><button data-range="24h">24h</button><button data-range="7d">7d</button>
+    </div>
+  </div>
+  <p id="since" class="muted"></p>
+  <div id="charts" class="charts">
+    <figure><figcaption>Temperature °C</figcaption><canvas id="c-temp"></canvas></figure>
+    <figure><figcaption>CPU %</figcaption><canvas id="c-cpu"></canvas></figure>
+    <figure><figcaption>RAM %</figcaption><canvas id="c-mem"></canvas></figure>
+    <figure><figcaption>Disk %</figcaption><canvas id="c-disk"></canvas></figure>
+    <figure><figcaption>Network</figcaption><canvas id="c-net"></canvas></figure>
+  </div>
+</section>
+{% endblock %}
+{% block script %}<script>detail({{ pi.id | tojson }}, {{ pi.spec | tojson }})</script>{% endblock %}

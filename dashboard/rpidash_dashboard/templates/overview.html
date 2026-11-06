@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block header %}
+  <span id="summary" class="summary"></span>
+  <form id="add-form" class="add">
+    <label for="add-host" class="sr">Pi address</label>
+    <input id="add-host" placeholder="Add a Pi by IP, e.g. 192.168.0.18" autocomplete="off">
+    <button type="submit">Add Pi</button>
+    <button type="button" id="scan" class="quiet">Scan network</button>
+  </form>
+{% endblock %}
+{% block main %}
+<section id="scan-results" hidden></section>
+<section id="pis" class="grid" aria-live="polite"></section>
+<p id="empty" class="empty" hidden>No Pis yet. Add one by its IP address, or scan your network to find every Pi running the agent.</p>
+{% endblock %}
+{% block script %}<script>overview()</script>{% endblock %}
