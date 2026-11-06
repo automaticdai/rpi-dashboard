@@ -11,6 +11,7 @@ Browser ──▶ dashboard (desktop or a Pi) ──HTTP :8765 + token──▶ 
 
 - **No database.** History lives in each agent's memory (about 3.5 MB for a full week) and
   restarts when the Pi or the agent restarts. Nothing is written to the SD card.
+  Measured agent memory (RSS) on 2026-11-06: 27–29 MB on every board, Pi Zero 2 W included.
 - **Pis are remembered.** The dashboard keeps `pis.json`, so you add a Pi once. If a Pi's
   DHCP address changes, the dashboard finds it again by its machine ID.
 - **Safe actions.** Every call except `/health` needs the shared token. Services can only be
