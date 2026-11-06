@@ -3,7 +3,10 @@
 {% block header %}
   <h1 class="pi-title"><span id="status-dot" class="dot"></span>{{ pi.hostname }}</h1>
   <span class="summary">{{ (pi.spec or {}).get("model", "") }} at {{ pi.host }}</span>
-  <button id="reboot" class="danger">Reboot</button>
+  <div class="power">
+    <button id="reboot" class="danger">Reboot</button>
+    <button id="shutdown" class="danger">Shut down</button>
+  </div>
 {% endblock %}
 {% block main %}
 <div class="detail">

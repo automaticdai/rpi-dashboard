@@ -26,7 +26,7 @@ function toast(msg) {
 }
 
 function bytes(n) {
-  if (n == null) return "–";
+  if (typeof n !== "number" || !Number.isFinite(n)) return "–";
   const u = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
@@ -34,7 +34,9 @@ function bytes(n) {
 }
 const rate = (n) => (n == null ? "–" : `${bytes(n)}/s`);
 const pct = (n) => (n == null ? "–" : `${Math.round(n)}%`);
-const temp = (n) => (n == null ? "–" : `${n.toFixed(1)}°`);
+// Agent data is untrusted: never call number methods on something that might not be a number.
+const fixed = (v, d) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(d) : "–");
+const temp = (n) => (n == null ? "–" : `${fixed(n, 1)}°`);
 
 function duration(s) {
   if (s == null) return "–";
@@ -49,19 +51,17 @@ function ago(iso) {
 }
 
 // Card edge colour: blue when cool, amber when warm, red when hot. Never green.
-// A neutral slate step sits between blue and amber: blending them directly gives a muddy green.
-const HEAT_STOPS = [[35, [59, 130, 196]], [48, [140, 148, 165]], [58, [224, 165, 38]], [70, [214, 69, 65]]];
+// Card edge colour: green when cool, amber when warm, red when hot (hue blended between stops).
+const HEAT_STOPS = [[45, 135], [58, 40], [70, 0]]; // [°C, hue]
 function heat(t) {
-  if (t == null) return null;
-  if (t <= HEAT_STOPS[0][0]) return `rgb(${HEAT_STOPS[0][1]})`;
-  for (let i = 1; i < HEAT_STOPS.length; i++) {
-    const [t1, c1] = HEAT_STOPS[i], [t0, c0] = HEAT_STOPS[i - 1];
-    if (t <= t1) {
-      const x = (t - t0) / (t1 - t0);
-      return `rgb(${c0.map((v, k) => Math.round(v + (c1[k] - v) * x))})`;
-    }
+  if (typeof t !== "number") return null;
+  let hue = HEAT_STOPS[0][1];
+  if (t >= HEAT_STOPS.at(-1)[0]) hue = HEAT_STOPS.at(-1)[1];
+  else for (let i = 1; i < HEAT_STOPS.length; i++) {
+    const [t0, h0] = HEAT_STOPS[i - 1], [t1, h1] = HEAT_STOPS[i];
+    if (t > t0 && t <= t1) hue = h0 + ((h1 - h0) * (t - t0)) / (t1 - t0);
   }
-  return `rgb(${HEAT_STOPS.at(-1)[1]})`;
+  return `hsl(${Math.round(hue)} 62% 45%)`;
 }
 
 const memPct = (s) => (s && s.mem_total ? (s.mem_used / s.mem_total) * 100 : null);
@@ -328,7 +328,7 @@ function renderLive(p) {
   dot.title = STATUS_TEXT[p.status];
   const s = p.live && p.live.sample;
   const rows = s ? [
-    ["Status", STATUS_TEXT[p.status]], ["Temperature", temp(s.temp_c)], ["CPU", `${pct(s.cpu_pct)} (load ${s.load1.toFixed(2)})`],
+    ["Status", STATUS_TEXT[p.status]], ["Temperature", temp(s.temp_c)], ["CPU", `${pct(s.cpu_pct)} (load ${fixed(s.load1, 2)})`],
     ["RAM", `${bytes(s.mem_used)} of ${bytes(s.mem_total)}`], ["Swap", bytes(s.swap_used)], ["Disk", pct(s.disk_pct)],
     ["Network", `↓ ${rate(s.net_rx_bps)}  ↑ ${rate(s.net_tx_bps)}`], ["Uptime", duration(p.live.uptime_s)],
     ["Fan", s.fan_rpm == null ? "No sensor" : `${s.fan_rpm} rpm`],
@@ -343,7 +343,7 @@ function renderLive(p) {
     <td class="actions">${["start", "stop", "restart"].map((a) => `<button class="small" data-svc="${esc(sv.name)}" data-action="${a}">${a[0].toUpperCase() + a.slice(1)}</button>`).join(" ")}</td></tr>`).join("");
 
   const top = (p.live && p.live.top) || [];
-  $("#top tbody").innerHTML = top.map((t) => `<tr><td>${esc(t.name)} <span class="muted">${t.pid}</span></td><td class="num">${t.cpu_pct.toFixed(1)}%</td><td class="num">${t.mem_pct.toFixed(1)}%</td></tr>`).join("");
+  $("#top tbody").innerHTML = top.map((t) => `<tr><td>${esc(t.name)} <span class="muted">${esc(t.pid)}</span></td><td class="num">${fixed(t.cpu_pct, 1)}%</td><td class="num">${fixed(t.mem_pct, 1)}%</td></tr>`).join("");
 }
 
 function renderSpec(spec) {
@@ -385,6 +385,12 @@ function detail(id, spec) {
     if (!confirm(`Reboot ${name} now? It will be offline for about a minute and its history will restart.`)) return;
     try { await api("POST", `/api/pis/${encodeURIComponent(id)}/reboot`); toast(`Rebooting ${name}`); }
     catch (err) { toast(`Reboot failed: ${err.message}`); }
+  });
+  $("#shutdown").addEventListener("click", async () => {
+    const name = document.querySelector(".pi-title").textContent.trim();
+    if (!confirm(`Shut down ${name} now? It stays off until someone unplugs and reconnects its power; the dashboard can't turn it back on.`)) return;
+    try { await api("POST", `/api/pis/${encodeURIComponent(id)}/shutdown`); toast(`Shutting down ${name}`); }
+    catch (err) { toast(`Shut down failed: ${err.message}`); }
   });
   document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));

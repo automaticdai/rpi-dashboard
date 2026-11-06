@@ -1,7 +1,7 @@
 # rpi-dashboard
 
 All your Pis, in one place. A small agent on each Raspberry Pi reports live stats, keeps
-7 days of history in memory, and can reboot the Pi or restart allowlisted services. A web
+7 days of history in memory, and can reboot or shut down the Pi or restart allowlisted services. A web
 dashboard shows every Pi at a glance, with charts and actions.
 
 ![Overview: one card per Pi with temperature, CPU, RAM and disk while all five Pis are under load](docs/screenshots/overview.png)
@@ -36,11 +36,13 @@ Needs Python 3.11 or newer, which Raspberry Pi OS (Debian 13) and Ubuntu 24.04 h
 
 ```sh
 rsync -a --delete --exclude tests --exclude build --exclude '*.egg-info' agent/ <pi>:~/rpidash-agent/
-ssh -t <pi> "cd ~/rpidash-agent && sudo RPIDASH_TOKEN=$(cat ~/.config/rpidash/token) \
-  RPIDASH_SERVICES='cpu-performance,user:oled-stats' ./install.sh"
+scp -p ~/.config/rpidash/token <pi>:~/rpidash-agent/token     # first install only
+ssh -t <pi> "cd ~/rpidash-agent && sudo RPIDASH_SERVICES='cpu-performance,user:oled-stats' ./install.sh"
 ```
 
-Running `install.sh` again upgrades the agent and keeps the existing `/etc/rpidash-agent.toml`.
+The token is read from that file (never the command line, so it stays out of `ps` and the
+sudo log) and the file is deleted once the config is written. Running `install.sh` again
+upgrades the agent and keeps the existing `/etc/rpidash-agent.toml`.
 The allowlist takes system units by name, or user units of `service_user` (default: the
 sudo user) written as `user:<unit>`. To change it later, edit `/etc/rpidash-agent.toml`,
 then run `sudo systemctl restart rpidash-agent`.
@@ -61,12 +63,13 @@ Open http://127.0.0.1:8080, then use **Scan network** or add a Pi by IP. Each da
 instance keeps its own `pis.json`, which you can copy between machines.
 
 On a Pi: install into `/opt/rpidash-dashboard/venv`, put the config at
-`/etc/rpidash/dashboard.toml` with `registry_path = "/var/lib/rpidash/pis.json"` and
+`/etc/rpidash/dashboard.toml` (it can stay root-only, mode 600) with
+`registry_path = "/var/lib/rpidash/pis.json"` and
 `allowed_hosts` set to the names and IPs you'll browse to (for example
 `["rpi-5", "192.168.0.23"]`), and use `dashboard/rpidash-dashboard.service`.
 
 The dashboard has no login, so it only accepts requests whose Host is in `allowed_hosts`,
-and it refuses reboots and service actions sent by other websites. Before any action it
+and it refuses reboots, shutdowns and service actions sent by other websites. Before any action it
 checks that the Pi at the saved address is still the same Pi, so a DHCP address swap
 can't make you reboot the wrong one.
 

@@ -55,7 +55,8 @@ button {
   background: var(--accent); color: #fff; cursor: pointer;
 }
 button.quiet { background: transparent; color: var(--accent); }
-button.danger { margin-left: auto; background: transparent; color: var(--bad); border-color: var(--bad); }
+button.danger { background: transparent; color: var(--bad); border-color: var(--bad); }
+.power { margin-left: auto; display: flex; gap: 8px; }
 button.small { padding: 3px 9px; font-size: .85rem; background: transparent; color: var(--accent); }
 button:disabled { opacity: .5; cursor: wait; }
 
