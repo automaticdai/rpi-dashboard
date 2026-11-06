@@ -10,6 +10,16 @@ RestartSec=5
 User=root
 Nice=10
 MemoryMax=80M
+# Hardening: the agent only reads system state and asks systemd (over D-Bus) to act.
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
 
 [Install]
 WantedBy=multi-user.target

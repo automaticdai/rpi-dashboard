@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Install or upgrade the rpi-dashboard agent. Run as root from the agent/ directory:
-#   sudo RPIDASH_TOKEN=... RPIDASH_SERVICES="cpu-performance,user:oled-stats" ./install.sh
-# Safe to re-run: the config is only written if it does not exist yet.
+# Install or upgrade the rpi-dashboard agent. Run as root from the agent/ directory.
+# First install: copy the token into this directory as a file named `token` (it is deleted
+# afterwards), then:
+#   sudo RPIDASH_SERVICES="cpu-performance,user:oled-stats" ./install.sh
+# The token is read from that file, never from the command line, so it stays out of `ps`
+# and the sudo log. Safe to re-run: an existing /etc/rpidash-agent.toml is kept.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,27 +30,20 @@ rm -rf "$SRC/build" "$SRC"/*.egg-info
 "$PREFIX/venv/bin/pip" install --quiet --upgrade "$SRC"
 rm -rf "$SRC/build" "$SRC"/*.egg-info
 
+TOKEN_FILE="${RPIDASH_TOKEN_FILE:-$SRC/token}"
 if [[ ! -f $CONF ]]; then
-  : "${RPIDASH_TOKEN:?set RPIDASH_TOKEN for the first install}"
-  services=""
-  IFS=',' read -ra items <<< "${RPIDASH_SERVICES:-}"
-  for s in "${items[@]}"; do
-    s="$(echo "$s" | xargs)"
-    [[ -n $s ]] && services+="${services:+, }\"$s\""
-  done
-  umask 077
-  cat > "$CONF" <<CONF
-token = "$RPIDASH_TOKEN"
-port = 8765
-interval = 10
-services_allowlist = [$services]
-service_user = "${RPIDASH_SERVICE_USER:-${SUDO_USER:-yfrl}}"
-CONF
-  chmod 600 "$CONF"
-  echo "wrote $CONF"
+  if [[ ! -f $TOKEN_FILE ]]; then
+    echo "first install needs the token: copy it to $TOKEN_FILE (or set RPIDASH_TOKEN_FILE)" >&2
+    exit 1
+  fi
+  "$PREFIX/venv/bin/python" -m rpidash_agent.write_config \
+    --token-file "$TOKEN_FILE" --services "${RPIDASH_SERVICES:-}" \
+    --user "${RPIDASH_SERVICE_USER:-${SUDO_USER:-yfrl}}" --out "$CONF"
 else
   echo "keeping existing $CONF"
 fi
+# Never leave a copy of the token lying around in the source directory.
+[[ $TOKEN_FILE == "$SRC/token" ]] && rm -f "$TOKEN_FILE"
 
 install -m 644 "$SRC/rpidash-agent.service" "$UNIT"
 systemctl daemon-reload
