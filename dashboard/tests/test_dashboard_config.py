@@ -26,3 +26,11 @@ def test_missing_token(tmp_path):
     p.write_text("subnet='x'\n")
     with pytest.raises(ValueError):
         load_config(p)
+
+
+def test_allowed_hosts_default_and_override(tmp_path):
+    p = tmp_path / "dashboard.toml"
+    p.write_text('token="t"\n')
+    assert load_config(p).allowed_hosts == ["localhost", "127.0.0.1"]
+    p.write_text('token="t"\nallowed_hosts=["rpi-5","192.168.0.23"]\n')
+    assert load_config(p).allowed_hosts == ["rpi-5", "192.168.0.23"]

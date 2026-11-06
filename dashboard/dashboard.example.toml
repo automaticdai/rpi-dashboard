@@ -6,3 +6,7 @@ agent_port = 8765
 warn_temp_c = 70
 warn_disk_pct = 90
 warn_mem_pct = 90
+# Names/addresses you type in the browser to reach the dashboard. Requests using any
+# other Host are refused (protects against DNS rebinding). Add the Pi's name and IP
+# when the dashboard runs on a Pi.
+allowed_hosts = ["localhost", "127.0.0.1"]

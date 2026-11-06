@@ -22,9 +22,13 @@ def make_pi(id_, host):
 class FakeAgents:
     """Mock transport: host -> behaviour ('ok', 'hang', 'auth', 'forbid', 'down')."""
 
-    def __init__(self, behaviours):
+    def __init__(self, behaviours, ids=None):
         self.behaviours = behaviours
+        self.ids = ids or {}  # host -> agent id it reports
         self.requests = []
+
+    def agent_id(self, host):
+        return self.ids.get(host, "ID-" + host)
 
     async def __call__(self, req):
         self.requests.append(req)
@@ -39,12 +43,12 @@ class FakeAgents:
             return httpx.Response(403, json={"error": "service not allowlisted"})
         p = req.url.path
         if p == "/health":
-            return httpx.Response(200, json={"app": "rpidash-agent", "id": "ID-" + req.url.host,
+            return httpx.Response(200, json={"app": "rpidash-agent", "id": self.agent_id(req.url.host),
                                              "hostname": "new-pi", "version": "0.1.0"})
         if p == "/spec":
             return httpx.Response(200, json={"model": "Raspberry Pi 3"})
         if p == "/live":
-            return httpx.Response(200, json={"sample": SAMPLE, "top": [], "services": [], "uptime_s": 5})
+            return httpx.Response(200, json={"id": self.agent_id(req.url.host), "sample": SAMPLE, "top": [], "services": [], "uptime_s": 5})
         if p == "/history":
             return httpx.Response(200, json={"since": 0, "ts": [1.0], "cpu_pct": [5.0]})
         return httpx.Response(200, json={"ok": True, "output": ""})
@@ -52,12 +56,13 @@ class FakeAgents:
 
 @pytest.fixture
 def make_client(tmp_path):
-    def _make(behaviours, pis=()):
-        cfg = DashboardConfig(token=TOKEN, registry_path=tmp_path / "pis.json", subnet="192.168.9.4/30")
+    def _make(behaviours, pis=(), ids=None):
+        cfg = DashboardConfig(token=TOKEN, registry_path=tmp_path / "pis.json", subnet="192.168.9.4/30",
+                              allowed_hosts=["testserver", "localhost", "127.0.0.1"])
         reg = Registry(cfg.registry_path)
         for p in pis:
             reg.upsert(p)
-        fake = FakeAgents(behaviours)
+        fake = FakeAgents(behaviours, ids={p.host: p.id for p in pis} | (ids or {}))
         agents = AgentClient(TOKEN, timeout=0.5, transport=httpx.MockTransport(fake))
         app = create_app(cfg, client=agents, registry=reg)
         return TestClient(app), reg, fake

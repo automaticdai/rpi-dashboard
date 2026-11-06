@@ -57,8 +57,14 @@ Open http://127.0.0.1:8080, then use **Scan network** or add a Pi by IP. Each da
 instance keeps its own `pis.json`, which you can copy between machines.
 
 On a Pi: install into `/opt/rpidash-dashboard/venv`, put the config at
-`/etc/rpidash/dashboard.toml` with `registry_path = "/var/lib/rpidash/pis.json"`, and use
-`dashboard/rpidash-dashboard.service`.
+`/etc/rpidash/dashboard.toml` with `registry_path = "/var/lib/rpidash/pis.json"` and
+`allowed_hosts` set to the names and IPs you'll browse to (for example
+`["rpi-5", "192.168.0.23"]`), and use `dashboard/rpidash-dashboard.service`.
+
+The dashboard has no login, so it only accepts requests whose Host is in `allowed_hosts`,
+and it refuses reboots and service actions sent by other websites. Before any action it
+checks that the Pi at the saved address is still the same Pi, so a DHCP address swap
+can't make you reboot the wrong one.
 
 ## Develop
 

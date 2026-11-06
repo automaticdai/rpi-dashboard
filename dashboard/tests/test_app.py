@@ -87,3 +87,35 @@ def test_no_token_in_responses(make_client):
         bodies = [c.get("/api/pis").text, c.post("/api/scan").text, c.get("/api/pis/A/history").text,
                   c.post("/api/pis", json={"host": "192.168.9.5"}).text, c.post("/api/pis/A/reboot").text]
     assert all(TOKEN not in b for b in bodies)
+
+
+def test_other_pi_at_registered_address_is_not_shown_as_this_pi(make_client):
+    # rpi "A" was at 10.0.0.1; DHCP has since given that address to another Pi ("B").
+    c, _, _ = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")], ids={"10.0.0.1": "B"})
+    with c:
+        row = c.get("/api/pis").json()[0]
+    assert row["status"] == "offline" and row["live"] is None
+
+
+def test_action_refused_when_address_now_belongs_to_another_pi(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")], ids={"10.0.0.1": "B"})
+    with c:
+        assert c.post("/api/pis/A/reboot").status_code == 409
+        assert c.post("/api/pis/A/services/x/restart").status_code == 409
+    assert not [r for r in fake.requests if r.method == "POST"]
+
+
+def test_rejects_unknown_host_header(make_client):
+    c, _, _ = make_client({})
+    with c:
+        assert c.get("/api/pis", headers={"Host": "evil.example"}).status_code == 400
+
+
+def test_rejects_cross_origin_post(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        assert c.post("/api/pis/A/reboot", headers={"Origin": "http://evil.example"}).status_code == 403
+        assert c.post("/api/pis/A/reboot", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+        assert c.delete("/api/pis/A", headers={"Origin": "http://evil.example"}).status_code == 403
+        assert c.post("/api/pis/A/reboot", headers={"Origin": "http://testserver"}).status_code == 200
+    assert len([r for r in fake.requests if r.method == "POST"]) == 1

@@ -7,9 +7,11 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -51,6 +53,17 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
 
     app = FastAPI(title="rpi-dashboard", lifespan=lifespan)
     app.state.cfg, app.state.registry = cfg, registry
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=cfg.allowed_hosts)
+
+    @app.middleware("http")
+    async def same_origin_writes(request: Request, call_next):
+        # No login (owner's choice), so refuse state-changing requests made by other websites.
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            origin = request.headers.get("origin")
+            cross = request.headers.get("sec-fetch-site") == "cross-site"
+            if cross or (origin and urlsplit(origin).netloc != request.headers.get("host")):
+                return JSONResponse({"detail": "cross-site request refused"}, status_code=403)
+        return await call_next(request)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
 
@@ -85,8 +98,11 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         status, live = "offline", None
         try:
             live = await asyncio.wait_for(agents.live(pi.host), call_timeout())
-            status = "online"
-            pi.last_seen = _now_iso()
+            if live.get("id", pi.id) != pi.id:
+                live = None  # its address now belongs to another Pi: treat as offline so rediscovery runs
+            else:
+                status = "online"
+                pi.last_seen = _now_iso()
         except AgentAuthError:
             status = "auth_failed"
         except (AgentError, PermissionError, asyncio.TimeoutError):
@@ -138,12 +154,21 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         return [{"host": h, "id": d["id"], "hostname": d.get("hostname"), "known": registry.get(d["id"]) is not None}
                 for h, d in found]
 
+    async def verified_host(pi_id: str) -> str:
+        """Confirm the Pi at the stored address is still this Pi before acting on it."""
+        pi = get_pi(pi_id)
+        health = await agent_call(agents.health(pi.host))
+        if health["id"] != pi.id:
+            raise HTTPException(409, f"{pi.host} now belongs to {health.get('hostname', 'another Pi')}; "
+                                     f"wait for {pi.hostname} to be found again")
+        return pi.host
+
     @app.post("/api/pis/{pi_id}/reboot")
     async def reboot(pi_id: str):
-        return await agent_call(agents.reboot(get_pi(pi_id).host))
+        return await agent_call(agents.reboot(await verified_host(pi_id)))
 
     @app.post("/api/pis/{pi_id}/services/{entry}/{action}")
     async def service_action(pi_id: str, entry: str, action: str):
-        return await agent_call(agents.service_action(get_pi(pi_id).host, entry, action))
+        return await agent_call(agents.service_action(await verified_host(pi_id), entry, action))
 
     return app
