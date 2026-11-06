@@ -1,0 +1,15 @@
+[Unit]
+Description=rpi-dashboard agent (stats, history, reboot/service actions)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/rpidash-agent/venv/bin/python -m rpidash_agent --config /etc/rpidash-agent.toml
+Restart=always
+RestartSec=5
+User=root
+Nice=10
+MemoryMax=80M
+
+[Install]
+WantedBy=multi-user.target

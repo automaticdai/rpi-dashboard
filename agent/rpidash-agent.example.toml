@@ -1,0 +1,7 @@
+# /etc/rpidash-agent.toml  (mode 600; install.sh writes it on first install)
+token = "change-me"            # shared with the dashboard; never commit the real one
+port = 8765
+interval = 10                   # seconds between samples
+# System units by name, or user units of `service_user` as "user:<name>".
+services_allowlist = ["cpu-performance", "user:oled-stats"]
+service_user = "yfrl"
