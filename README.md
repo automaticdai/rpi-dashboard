@@ -11,8 +11,8 @@ and actions.
 
 Switch the overview between three views (top right); your choice is remembered.
 
-- **Cards** — one card per Pi: OS, cores, RAM and disk type (SD, eMMC, NVMe...), then
-  temperature, CPU, RAM and disk ("used of total", then %), network, uptime and warning chips. The coloured edge runs from green (cool) through amber
+- **Cards** — one card per Pi: board, OS, cores and disk type (SD, eMMC, NVMe...) on one line,
+  then temperature, CPU, RAM and disk ("used of total", then %), network, uptime and warnings. The coloured edge runs from green (cool) through amber
   to red (hot).
 - **List** — one compact row per Pi with the same information.
 - **Table** — numbers only, one row per Pi. Click a column heading to sort (again to reverse,
@@ -21,7 +21,9 @@ Switch the overview between three views (top right); your choice is remembered.
 Drag a card or row (or focus its ⠿ handle and use the arrow keys) to reorder; the order is
 saved. A Pi whose agent is older than the dashboard shows **Agent out of date**.
 
-![Overview in Cards view: one card per Pi showing temperature, CPU, RAM and disk, with a coloured edge from green (cool) to red (hot)](docs/screenshots/overview.png)
+![Overview in Cards view: one card per Pi with its board, OS, cores and disk type, temperature, CPU, RAM and disk, and a coloured edge from green (cool) to red (hot)](docs/screenshots/overview.png)
+
+![Overview in Table view: one sortable row per Pi with model, OS, temperature, CPU, load, RAM, disk, network, fan, uptime and warnings](docs/screenshots/overview-table.png)
 
 ### Detail page
 
