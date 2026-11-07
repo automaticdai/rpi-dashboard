@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import logging
 import os
 import sys
@@ -43,7 +44,15 @@ def main(argv: list[str] | None = None) -> None:
     threading.Thread(target=_sampler, args=(Collector(), history, cfg.interval, stop), daemon=True).start()
     jobs = BenchJobs(Benchmarks(binary=cfg.bench_binary, state_dir=cfg.state_dir))
     stress = Stress(binary=str(cfg.bench_binary), python=sys.executable, cores=os.cpu_count() or 1)
-    srv = make_server(cfg, history, services, jobs=jobs, stress=stress)
+    # A second collector for on-demand readings (the Stress tab's live charts), so its
+    # network-rate bookkeeping doesn't disturb the 10 s history samples.
+    live_collector, live_lock = Collector(), threading.Lock()
+
+    def now_sample() -> dict:
+        with live_lock:
+            return asdict(live_collector.sample(time.time()))
+
+    srv = make_server(cfg, history, services, jobs=jobs, stress=stress, now_fn=now_sample)
     log.info("rpidash-agent listening on :%d", cfg.port)
     try:
         srv.serve_forever()

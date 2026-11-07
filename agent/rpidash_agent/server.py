@@ -27,7 +27,7 @@ ENTRY_RE = re.compile(r"^(user:)?[A-Za-z0-9@._-]+$")
 def make_server(cfg: AgentConfig, history: History, services: Services, *, host: str = "0.0.0.0",
                 port: int | None = None, spec_fn=read_spec, id_fn=machine_id, top_fn=top_processes,
                 reboot_delay: float = 1.0, request_timeout: float = 10.0, jobs=None,
-                stress=None) -> ThreadingHTTPServer:
+                stress=None, now_fn=None) -> ThreadingHTTPServer:
     token = cfg.token.encode()
 
     class Handler(BaseHTTPRequestHandler):
@@ -76,12 +76,16 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
             if url.path == "/health":
                 return self._send(200, {"app": "rpidash-agent", "id": id_fn(),
                                         "hostname": socket.gethostname(), "version": __version__})
-            if url.path not in ("/spec", "/live", "/history", "/bench"):
+            if url.path not in ("/spec", "/live", "/history", "/bench", "/now"):
                 return self._send(404, {"error": "not found"})
             if not self._authed():
                 return
             if url.path == "/spec":
                 return self._send(200, spec_fn())
+            if url.path == "/now":
+                if now_fn is None:
+                    return self._send(503, {"error": "live readings unavailable"})
+                return self._send(200, {"id": id_fn(), "sample": now_fn()})
             if url.path == "/bench":
                 return self._send(200, jobs.status()) if jobs else self._send(503, {"error": "benchmarks unavailable"})
             if url.path == "/live":

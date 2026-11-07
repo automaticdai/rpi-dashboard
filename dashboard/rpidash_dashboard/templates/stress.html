@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Stress · Pi fleet{% endblock %}
+{% block main %}
+<section class="panel run">
+  <h2>Stress</h2>
+  <p class="muted">Loads the ticked Pis and plots them live. Each load stops by itself after the time you choose.</p>
+  <form id="stress-form">
+    <fieldset>
+      <legend>Pis</legend>
+      <div id="stress-pis" class="ticks"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Load</legend>
+      <div class="ticks">
+        <label><input type="checkbox" name="load" value="cpu" checked> CPU <span class="muted">every core busy</span></label>
+        <label><input type="checkbox" name="load" value="ram" checked> RAM <span class="muted">holds 40% of free memory</span></label>
+        <label><input type="checkbox" name="load" value="net"> Network <span class="muted">downloads from speed.cloudflare.com</span></label>
+        <label>For <input type="number" id="stress-minutes" min="1" max="30" value="5"> minutes</label>
+      </div>
+    </fieldset>
+    <button type="submit">Start stress</button>
+    <button type="button" id="stress-stop" class="quiet">Stop stress</button>
+  </form>
+</section>
+<section class="history">
+  <div class="history-head">
+    <h2>Live</h2>
+    <span class="muted">Ticked Pis, read every 2 seconds, last 5 minutes</span>
+  </div>
+  <div id="live-charts" class="charts">
+    <figure><figcaption>CPU %</figcaption><canvas id="l-cpu"></canvas></figure>
+    <figure><figcaption>RAM %</figcaption><canvas id="l-mem"></canvas></figure>
+    <figure><figcaption>Temperature °C</figcaption><canvas id="l-temp"></canvas></figure>
+    <figure><figcaption>Network download Mbit/s</figcaption><canvas id="l-net"></canvas></figure>
+  </div>
+</section>
+{% endblock %}
+{% block script %}<script>stressPage()</script>{% endblock %}

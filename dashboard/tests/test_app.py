@@ -233,3 +233,21 @@ def test_busy_pi_message_is_not_called_unreachable(make_client):
     with c:
         err = c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu"]}).json()["A"]["error"]
     assert err == "a benchmark is already running on this Pi"
+
+
+def test_now_reads_ticked_pis_and_tolerates_failures(make_client):
+    c, _, _ = make_client({"10.0.0.1": "ok", "10.0.0.2": "hang", "10.0.0.3": "ok"},
+                          pis=[make_pi("A", "10.0.0.1"), make_pi("B", "10.0.0.2"), make_pi("C", "10.0.0.3")],
+                          ids={"10.0.0.3": "someone-else"})
+    with c:
+        t0 = time.monotonic()
+        r = c.get("/api/now", params={"ids": "A,B,C,Z"}).json()
+        assert time.monotonic() - t0 < 2
+    assert r["A"]["cpu_pct"] == 5.0
+    assert r["B"] is None and r["C"] is None and "Z" not in r
+
+
+def test_now_requires_ids(make_client):
+    c, _, _ = make_client({})
+    with c:
+        assert c.get("/api/now").status_code == 422

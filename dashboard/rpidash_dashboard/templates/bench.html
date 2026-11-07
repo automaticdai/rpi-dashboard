@@ -44,26 +44,5 @@
   <p class="muted">The best result in each column is in bold. Hover over a number to see when it was measured.</p>
 </section>
 
-<section class="panel run">
-  <h2>Stress</h2>
-  <p class="muted">Loads the ticked Pis so you can watch their cards react. It stops by itself after the time you choose.</p>
-  <form id="stress-form">
-    <fieldset>
-      <legend>Pis</legend>
-      <div id="stress-pis" class="ticks"></div>
-    </fieldset>
-    <fieldset>
-      <legend>Load</legend>
-      <div class="ticks">
-        <label><input type="checkbox" name="load" value="cpu" checked> CPU <span class="muted">every core busy</span></label>
-        <label><input type="checkbox" name="load" value="ram" checked> RAM <span class="muted">holds 40% of free memory</span></label>
-        <label><input type="checkbox" name="load" value="net"> Network <span class="muted">downloads from speed.cloudflare.com</span></label>
-        <label>For <input type="number" id="stress-minutes" min="1" max="30" value="5"> minutes</label>
-      </div>
-    </fieldset>
-    <button type="submit">Start stress</button>
-    <button type="button" id="stress-stop" class="quiet">Stop stress</button>
-  </form>
-</section>
 {% endblock %}
 {% block script %}<script>bench()</script>{% endblock %}

@@ -106,6 +106,10 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     async def bench_page(request: Request):
         return templates.TemplateResponse(request, "bench.html")
 
+    @app.get("/stress", response_class=HTMLResponse)
+    async def stress_page(request: Request):
+        return templates.TemplateResponse(request, "stress.html")
+
     @app.get("/pi/{pi_id}", response_class=HTMLResponse)
     async def detail_page(request: Request, pi_id: str):
         return templates.TemplateResponse(request, "detail.html", {"pi": get_pi(pi_id)})
@@ -255,6 +259,19 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         rows = [{"id": p.id, "hostname": p.hostname, "model": (p.spec or {}).get("model"),
                  "results": bench.results(p.id)} for p in registry.all()]
         return {"rows": rows, "running": running}
+
+    @app.get("/api/now")
+    async def live_now(ids: str):
+        """Fresh readings for the Stress tab's live charts; None for Pis that don't answer."""
+        async def read(pi: Pi):
+            try:
+                d = await asyncio.wait_for(agents.now(pi.host, pi.port), call_timeout())
+            except (AgentError, PermissionError, asyncio.TimeoutError):
+                return None
+            return d.get("sample") if d.get("id") == pi.id else None
+
+        pis = [p for p in (registry.get(i) for i in dict.fromkeys(ids.split(","))) if p]
+        return dict(zip([p.id for p in pis], await asyncio.gather(*(read(p) for p in pis))))
 
     @app.post("/api/pis/{pi_id}/stress")
     async def stress_start(pi_id: str, body: StressRequest):

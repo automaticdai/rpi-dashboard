@@ -468,7 +468,6 @@ function bench() {
     try { [pis, table] = await Promise.all([api("GET", "/api/pis"), api("GET", "/api/bench")]); }
     catch (e) { toast(`Couldn't load benchmarks: ${e.message}`); pollTimer = setTimeout(refresh, 10000); return; }
     tickList($("#bench-pis"), pis, "pi", false);
-    tickList($("#stress-pis"), pis, "spi", true);
     renderBenchTable(table.rows, table.running);
     const n = Object.keys(table.running).length;
     $("#bench-run").disabled = n > 0;
@@ -488,6 +487,114 @@ function bench() {
     refresh();
   });
 
+  refresh();
+}
+
+// ---------- stress tab: controls + live charts ----------
+const PI_COLOURS = ["#2f6fb0", "#d55e00", "#009e73", "#cc79a7", "#56b4e9", "#e69f00", "#7a5195", "#8c8c8c"];
+const LIVE_WINDOW_MS = 5 * 60 * 1000;
+const LIVE_METRICS = {
+  cpu: (s) => s.cpu_pct,
+  mem: (s) => (s.mem_total ? (s.mem_used / s.mem_total) * 100 : null),
+  temp: (s) => s.temp_c,
+  net: (s) => (typeof s.net_rx_bps === "number" ? (s.net_rx_bps * 8) / 1e6 : null),
+};
+
+function liveChart(id, opts = {}) {
+  const ink = cssVar("--muted"), line = cssVar("--line");
+  return new Chart(document.getElementById(id), {
+    type: "line",
+    data: { datasets: [] },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false, parsing: false, normalized: true,
+      interaction: { mode: "nearest", intersect: false },
+      plugins: { legend: { labels: { color: ink, boxWidth: 12 } } },
+      scales: {
+        x: { type: "linear", grid: { color: line },
+             ticks: { color: ink, maxTicksLimit: 6, maxRotation: 0,
+                      callback: (v) => new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) } },
+        y: { ticks: { color: ink }, grid: { color: line }, min: opts.min, max: opts.max, suggestedMax: opts.suggestedMax },
+      },
+    },
+  });
+}
+
+function stressPage() {
+  const charts = {
+    cpu: liveChart("l-cpu", { min: 0, max: 100 }),
+    mem: liveChart("l-mem", { min: 0, max: 100 }),
+    temp: liveChart("l-temp", { suggestedMax: 80 }),
+    net: liveChart("l-net", { min: 0 }),
+  };
+  const series = {}; // pi id -> {name, colour, points: {cpu: [], ...}}
+  let order = [];
+  const ticked = (sel) => [...document.querySelectorAll(sel)].filter((i) => i.checked).map((i) => i.value);
+
+  async function seed(p) {
+    // Start each line with the last 10 minutes of stored history, so the charts aren't empty.
+    try {
+      const h = await api("GET", `/api/pis/${encodeURIComponent(p.id)}/history?range=1h`);
+      const since = Date.now() - 10 * 60 * 1000;
+      h.ts.forEach((t, i) => {
+        if (t * 1000 < since) return;
+        const s = { cpu_pct: h.cpu_pct[i], mem_used: h.mem_used[i], mem_total: h.mem_total[i], temp_c: h.temp_c[i], net_rx_bps: h.net_rx_bps[i] };
+        for (const [k, f] of Object.entries(LIVE_METRICS)) series[p.id].points[k].push({ x: t * 1000, y: f(s) });
+      });
+    } catch { /* fine: the line just starts now */ }
+  }
+
+  function draw() {
+    const ids = ticked('#stress-pis input[name="spi"]');
+    const now = Date.now();
+    for (const [k, chart] of Object.entries(charts)) {
+      chart.data.datasets = ids.filter((id) => series[id]).map((id) => ({
+        label: series[id].name, data: series[id].points[k], borderColor: series[id].colour,
+        backgroundColor: series[id].colour, borderWidth: 1.6, pointRadius: 0, tension: 0.2,
+      }));
+      chart.options.scales.x.min = now - LIVE_WINDOW_MS;
+      chart.options.scales.x.max = now;
+      chart.update();
+    }
+  }
+
+  async function poll() {
+    const ids = ticked('#stress-pis input[name="spi"]').filter((id) => series[id]);
+    if (ids.length) {
+      try {
+        const readings = await api("GET", `/api/now?ids=${ids.map(encodeURIComponent).join(",")}`);
+        const cutoff = Date.now() - LIVE_WINDOW_MS - 10000;
+        for (const [id, s] of Object.entries(readings)) {
+          if (!s || !series[id]) continue;
+          for (const [k, f] of Object.entries(LIVE_METRICS)) {
+            const pts = series[id].points[k];
+            pts.push({ x: s.ts * 1000, y: f(s) });
+            while (pts.length && pts[0].x < cutoff) pts.shift();
+          }
+        }
+      } catch { /* keep the last picture; next poll retries */ }
+    }
+    draw();
+    setTimeout(poll, 2000);
+  }
+
+  async function loadPis() {
+    try {
+      const pis = await api("GET", "/api/pis");
+      order = pis.map((p) => p.id);
+      tickList($("#stress-pis"), pis, "spi", true);
+      for (const p of pis) {
+        if (!series[p.id]) {
+          series[p.id] = { name: p.hostname, colour: PI_COLOURS[order.indexOf(p.id) % PI_COLOURS.length],
+                           points: { cpu: [], mem: [], temp: [], net: [] } };
+          if (p.status === "online") seed(p);
+        }
+      }
+    } catch (e) { toast(`Couldn't load Pis: ${e.message}`); }
+  }
+  const refresh = loadPis; // used by the Start/Stop handlers below
+  async function pisLoop() { await loadPis(); setTimeout(pisLoop, 10000); }
+
+  $("#stress-pis").addEventListener("change", draw);
   $("#stress-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const ids = ticked('#stress-pis input[name="spi"]'), loads = ticked('input[name="load"]');
@@ -509,5 +616,5 @@ function bench() {
     refresh();
   });
 
-  refresh();
+  loadPis().then(() => { poll(); setTimeout(pisLoop, 10000); });
 }

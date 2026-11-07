@@ -29,5 +29,14 @@ def test_bench_page_renders_and_is_linked(make_client):
     with c:
         r = c.get("/bench")
         assert r.status_code == 200
-        assert 'id="bench-table"' in r.text and 'id="stress-form"' in r.text and "bench()" in r.text
+        assert 'id="bench-table"' in r.text and "bench()" in r.text
         assert 'href="/bench"' in c.get("/").text
+
+
+def test_stress_tab(make_client):
+    c, _, _ = make_client({})
+    with c:
+        r = c.get("/stress")
+        assert r.status_code == 200 and 'id="stress-form"' in r.text and 'id="live-charts"' in r.text
+        assert 'href="/stress"' in c.get("/").text
+        assert 'id="stress-form"' not in c.get("/bench").text

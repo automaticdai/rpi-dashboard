@@ -72,7 +72,8 @@ def agent():
     cfg = AgentConfig(token=TOKEN, services_allowlist=["cpu-performance", "user:oled-stats"])
     srv = make_server(cfg, history, Services(cfg.services_allowlist, runner=runner), host="127.0.0.1", port=0,
                       spec_fn=lambda: {"model": "Test Pi"}, id_fn=lambda: "mid-1",
-                      top_fn=lambda: [], reboot_delay=0.05, jobs=FakeJobs(), stress=FakeStress())
+                      top_fn=lambda: [], reboot_delay=0.05, jobs=FakeJobs(), stress=FakeStress(),
+                      now_fn=lambda: {"ts": 123.0, "cpu_pct": 42.0})
 
     t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     t.start()
@@ -249,3 +250,11 @@ def test_stress_start_stop_and_live(agent):
     assert call(base + "/stress", "POST", body={"cpu": True, "minutes": 99})[0] == 400
     assert call(base + "/stress/stop", "POST")[1] == {"cpu": False, "ram": False, "net": False}
     assert call(base + "/live")[1]["stress"] == {"cpu": False, "ram": True, "net": False}
+
+
+
+def test_now_returns_a_fresh_sample(agent):
+    base, _, _ = agent
+    assert call(base + "/now", token=None)[0] == 401
+    code, body = call(base + "/now")
+    assert code == 200 and body == {"id": "mid-1", "sample": {"ts": 123.0, "cpu_pct": 42.0}}

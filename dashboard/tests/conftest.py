@@ -57,6 +57,8 @@ class FakeAgents:
                 return httpx.Response(200, json={"cpu": True, "ram": False, "net": False})
         if p == "/bench":
             return httpx.Response(200, json=self.bench_status.get(req.url.host, {"state": "idle"}))
+        if p == "/now":
+            return httpx.Response(200, json={"id": self.agent_id(req.url.host), "sample": SAMPLE})
         if p == "/health":
             return httpx.Response(200, json={"app": "rpidash-agent", "id": self.agent_id(req.url.host),
                                              "hostname": "new-pi", "version": "0.1.0"})

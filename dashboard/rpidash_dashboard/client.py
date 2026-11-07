@@ -79,6 +79,9 @@ class AgentClient:
         return await self._req("POST", host, f"/services/{quote(entry, safe='')}/{quote(action, safe='')}",
                                port=port)
 
+    async def now(self, host: str, port: int | None = None) -> dict:
+        return await self._req("GET", host, "/now", port=port)
+
     async def bench_start(self, host: str, tests: list[str], port: int | None = None) -> dict:
         return await self._req("POST", host, "/bench", port=port, json={"tests": tests})
 
