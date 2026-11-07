@@ -4,9 +4,30 @@ All your Pis, in one place. A small agent on each Raspberry Pi reports live stat
 7 days of history in memory, and can reboot or shut down the Pi or restart allowlisted services. A web
 dashboard shows every Pi at a glance, with charts and actions.
 
-![Overview: one card per Pi with temperature, CPU, RAM and disk while all five Pis are under load](docs/screenshots/overview.png)
+![Overview: one card per Pi showing temperature, CPU, RAM and disk, with a coloured edge that runs from green (cool) to red (hot)](docs/screenshots/overview.png)
 
-![Detail page for rpi-cm5: live values, top processes, hardware, and one-hour charts for temperature, CPU, RAM, disk, network and fan speed](docs/screenshots/pi-detail.png)
+![Detail page for rpi-cm5: live values, top processes, hardware (serial and MAC addresses hidden), Reboot and Shut down buttons, and one-hour charts for temperature, CPU, RAM, disk, network and fan speed](docs/screenshots/pi-detail.png)
+
+### Benchmarks
+
+Tick the Pis and tests for a round; ticked Pis run in parallel. The results table is saved, so
+you can come back to it later, and a round only replaces the numbers it measured.
+
+- **CPU:** `rpibench`, a small C program built on each Pi with the same flags: integer
+  (Mops/s) and floating point (MFLOPS), on one core and on all cores.
+- **Disk:** sequential write/read (MB/s) and 4K random read/write (IOPS) with `O_DIRECT`,
+  using a 256 MB test file that is deleted afterwards.
+- **Internet:** download, upload and latency against speed.cloudflare.com.
+
+![Benchmarks page: a table of CPU, disk and internet results for five Pis, with the best result in each column in bold](docs/screenshots/benchmarks.png)
+
+### Stress
+
+Start a CPU, RAM and/or network load on the ticked Pis and watch them live: CPU, RAM,
+temperature and network, read every 2 seconds, one line per Pi. Every load stops by itself
+after the time you choose (1 to 30 minutes), or when you press Stop.
+
+![Stress tab: controls to load the ticked Pis, and live charts of CPU, RAM, temperature and network with one line per Pi](docs/screenshots/stress.png)
 
 ```
 Browser ──▶ dashboard (desktop or a Pi) ──HTTP :8765 + token──▶ agent on each Pi
