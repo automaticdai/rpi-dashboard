@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Benchmarks · Pi fleet{% endblock %}
+{% block main %}
+<section class="panel run">
+  <h2>Run a benchmark round</h2>
+  <p class="muted">Ticked Pis run at the same time. A round only replaces the results it measures; everything else in the table stays.</p>
+  <form id="bench-form">
+    <fieldset>
+      <legend>Pis</legend>
+      <div id="bench-pis" class="ticks"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Tests</legend>
+      <div class="ticks">
+        <label><input type="checkbox" name="test" value="cpu" checked> CPU <span class="muted">about 25 s</span></label>
+        <label><input type="checkbox" name="test" value="disk" checked> Disk <span class="muted">about 30 s, writes 256 MB</span></label>
+        <label><input type="checkbox" name="test" value="net" checked> Internet <span class="muted">about 20 s, via speed.cloudflare.com</span></label>
+      </div>
+    </fieldset>
+    <button type="submit" id="bench-run">Run benchmarks</button>
+    <span id="bench-progress" class="muted" aria-live="polite"></span>
+  </form>
+</section>
+
+<section class="results">
+  <h2>Results</h2>
+  <div class="table-scroll">
+    <table id="bench-table" class="bench">
+      <thead>
+        <tr class="groups"><th></th><th colspan="4">CPU</th><th colspan="4">Disk</th><th colspan="3">Internet</th></tr>
+        <tr>
+          <th>Pi</th>
+          <th class="num">INT 1 core<br><span class="unit">Mops/s</span></th><th class="num">INT all cores<br><span class="unit">Mops/s</span></th>
+          <th class="num">FP 1 core<br><span class="unit">MFLOPS</span></th><th class="num">FP all cores<br><span class="unit">MFLOPS</span></th>
+          <th class="num">Seq write<br><span class="unit">MB/s</span></th><th class="num">Seq read<br><span class="unit">MB/s</span></th>
+          <th class="num">4K read<br><span class="unit">IOPS</span></th><th class="num">4K write<br><span class="unit">IOPS</span></th>
+          <th class="num">Down<br><span class="unit">Mbit/s</span></th><th class="num">Up<br><span class="unit">Mbit/s</span></th>
+          <th class="num">Latency<br><span class="unit">ms</span></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="muted">The best result in each column is in bold. Hover over a number to see when it was measured.</p>
+</section>
+
+<section class="panel run">
+  <h2>Stress</h2>
+  <p class="muted">Loads the ticked Pis so you can watch their cards react. It stops by itself after the time you choose.</p>
+  <form id="stress-form">
+    <fieldset>
+      <legend>Pis</legend>
+      <div id="stress-pis" class="ticks"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Load</legend>
+      <div class="ticks">
+        <label><input type="checkbox" name="load" value="cpu" checked> CPU <span class="muted">every core busy</span></label>
+        <label><input type="checkbox" name="load" value="ram" checked> RAM <span class="muted">holds 40% of free memory</span></label>
+        <label><input type="checkbox" name="load" value="net"> Network <span class="muted">downloads from speed.cloudflare.com</span></label>
+        <label>For <input type="number" id="stress-minutes" min="1" max="30" value="5"> minutes</label>
+      </div>
+    </fieldset>
+    <button type="submit">Start stress</button>
+    <button type="button" id="stress-stop" class="quiet">Stop stress</button>
+  </form>
+</section>
+{% endblock %}
+{% block script %}<script>bench()</script>{% endblock %}

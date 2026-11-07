@@ -102,6 +102,10 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     async def overview_page(request: Request):
         return templates.TemplateResponse(request, "overview.html")
 
+    @app.get("/bench", response_class=HTMLResponse)
+    async def bench_page(request: Request):
+        return templates.TemplateResponse(request, "bench.html")
+
     @app.get("/pi/{pi_id}", response_class=HTMLResponse)
     async def detail_page(request: Request, pi_id: str):
         return templates.TemplateResponse(request, "detail.html", {"pi": get_pi(pi_id)})

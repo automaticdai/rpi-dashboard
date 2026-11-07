@@ -122,6 +122,8 @@ function card(p) {
     body = `<div class="meta"><span>${esc(spec.os || "")}</span><span>last seen ${ago(p.last_seen)}</span></div>`;
   }
   const chips = p.warnings.map((w) => `<span class="chip ${w === "disk" || w === "mem" ? "warn" : "bad"}">${WARN_TEXT[w] || esc(w)}</span>`);
+  const stressing = p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => k.toUpperCase()) : [];
+  if (stressing.length) chips.unshift(`<span class="chip warn">Stress running: ${stressing.join(", ")}</span>`);
   if (p.status !== "online") chips.unshift(`<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span>`);
   el.innerHTML = `
     <div class="card-head"><span class="dot ${p.status}"></span><h2><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a></h2>
@@ -401,4 +403,111 @@ function detail(id, spec) {
   loadHistory(id);
   setInterval(refresh, REFRESH_MS);
   setInterval(() => loadHistory(id), 30000);
+}
+
+// ---------- benchmarks & stress ----------
+const BENCH_COLS = [
+  ["cpu", "int_1", 0], ["cpu", "int_all", 0], ["cpu", "fp_1", 0], ["cpu", "fp_all", 0],
+  ["disk", "seq_write_MBps", 1], ["disk", "seq_read_MBps", 1], ["disk", "rand4k_read_iops", 0], ["disk", "rand4k_write_iops", 0],
+  ["net", "download_Mbps", 1], ["net", "upload_Mbps", 1], ["net", "latency_ms", 1],
+];
+const LOWER_IS_BETTER = new Set(["latency_ms"]);
+const TEST_NAME = { cpu: "CPU", disk: "disk", net: "internet" };
+
+function when(iso) {
+  return iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
+}
+
+function benchCell(group, key, digits, best) {
+  if (!group) return `<td class="num empty">–</td>`;
+  const v = group[key];
+  if (typeof v !== "number") {
+    return group.error
+      ? `<td class="num failed" title="${esc(group.error)} (${esc(when(group.error_at))})">failed</td>`
+      : `<td class="num empty">–</td>`;
+  }
+  const stale = group.error ? ` Last run failed: ${group.error}` : "";
+  const cls = v === best ? "num best" : "num";
+  return `<td class="${cls}" title="Measured ${esc(when(group.measured))}.${esc(stale)}">${v.toLocaleString(undefined, { maximumFractionDigits: digits })}</td>`;
+}
+
+function renderBenchTable(rows, running) {
+  const best = {};
+  for (const [g, k] of BENCH_COLS) {
+    const vals = rows.map((r) => r.results[g] && r.results[g][k]).filter((v) => typeof v === "number");
+    if (vals.length > 1) best[k] = LOWER_IS_BETTER.has(k) ? Math.min(...vals) : Math.max(...vals);
+  }
+  $("#bench-table tbody").innerHTML = rows.map((r) => {
+    const run = running[r.id];
+    const note = run ? `<span class="running">${run.unreachable ? "waiting for the Pi" : `running ${TEST_NAME[run.current] || ""}`}</span>` : "";
+    const cpu = r.results.cpu;
+    const sub = cpu && cpu.compiler ? `<span class="unit" title="${esc(cpu.compiler)}">${esc(r.model || "")}</span>` : `<span class="unit">${esc(r.model || "")}</span>`;
+    return `<tr><th scope="row">${esc(r.hostname)} ${note}<br>${sub}</th>${BENCH_COLS.map(([g, k, d]) => benchCell(r.results[g], k, d, best[k])).join("")}</tr>`;
+  }).join("");
+}
+
+function tickList(box, pis, name, stressStatus) {
+  const prev = new Set([...box.querySelectorAll("input:checked")].map((i) => i.value));
+  const first = box.children.length === 0;
+  box.innerHTML = pis.map((p) => {
+    const on = first ? p.status === "online" : prev.has(p.id);
+    const st = stressStatus && p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => k) : [];
+    const extra = p.status !== "online" ? ` <span class="muted">(${STATUS_TEXT[p.status].toLowerCase()})</span>`
+      : st.length ? ` <span class="chip warn">stress: ${st.join(", ")}</span>` : "";
+    return `<label><input type="checkbox" name="${name}" value="${esc(p.id)}" ${on ? "checked" : ""} ${p.status === "online" ? "" : "disabled"}> ${esc(p.hostname)}${extra}</label>`;
+  }).join("");
+}
+
+function bench() {
+  let pollTimer;
+  const ticked = (sel) => [...document.querySelectorAll(sel)].filter((i) => i.checked).map((i) => i.value);
+
+  async function refresh() {
+    clearTimeout(pollTimer);
+    let pis = [], table;
+    try { [pis, table] = await Promise.all([api("GET", "/api/pis"), api("GET", "/api/bench")]); }
+    catch (e) { toast(`Couldn't load benchmarks: ${e.message}`); pollTimer = setTimeout(refresh, 10000); return; }
+    tickList($("#bench-pis"), pis, "pi", false);
+    tickList($("#stress-pis"), pis, "spi", true);
+    renderBenchTable(table.rows, table.running);
+    const n = Object.keys(table.running).length;
+    $("#bench-run").disabled = n > 0;
+    $("#bench-progress").textContent = n ? `Running on ${n} Pi${n === 1 ? "" : "s"}…` : "";
+    pollTimer = setTimeout(refresh, n ? 3000 : 15000);
+  }
+
+  $("#bench-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const ids = ticked('#bench-pis input[name="pi"]'), tests = ticked('input[name="test"]');
+    if (!ids.length || !tests.length) { toast("Tick at least one Pi and one test."); return; }
+    try {
+      const res = await api("POST", "/api/bench", { ids, tests });
+      const failed = Object.entries(res).filter(([, r]) => r.error);
+      if (failed.length) toast(failed.map(([id, r]) => `${id.slice(0, 8)}: ${r.error}`).join("; "));
+    } catch (err) { toast(`Couldn't start: ${err.message}`); }
+    refresh();
+  });
+
+  $("#stress-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const ids = ticked('#stress-pis input[name="spi"]'), loads = ticked('input[name="load"]');
+    const minutes = Number($("#stress-minutes").value);
+    if (!ids.length || !loads.length) { toast("Tick at least one Pi and one load."); return; }
+    if (!(minutes >= 1 && minutes <= 30)) { toast("Choose between 1 and 30 minutes."); return; }
+    const body = { cpu: loads.includes("cpu"), ram: loads.includes("ram"), net: loads.includes("net"), minutes };
+    const out = await Promise.allSettled(ids.map((id) => api("POST", `/api/pis/${encodeURIComponent(id)}/stress`, body)));
+    const bad = out.filter((o) => o.status === "rejected");
+    toast(bad.length ? `Stress failed on ${bad.length} Pi(s): ${bad[0].reason.message}` : `Stress started for ${minutes} min on ${ids.length} Pi(s)`);
+    refresh();
+  });
+
+  $("#stress-stop").addEventListener("click", async () => {
+    const ids = ticked('#stress-pis input[name="spi"]');
+    if (!ids.length) { toast("Tick the Pis to stop."); return; }
+    await Promise.allSettled(ids.map((id) => api("POST", `/api/pis/${encodeURIComponent(id)}/stress/stop`)));
+    toast(`Stress stopped on ${ids.length} Pi(s)`);
+    refresh();
+  });
+
+  refresh();
 }

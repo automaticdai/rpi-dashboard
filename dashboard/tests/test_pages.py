@@ -22,3 +22,12 @@ def test_static_chartjs(make_client):
     with c:
         r = c.get("/static/chart.umd.min.js")
     assert r.status_code == 200 and len(r.content) > 100_000
+
+
+def test_bench_page_renders_and_is_linked(make_client):
+    c, _, _ = make_client({})
+    with c:
+        r = c.get("/bench")
+        assert r.status_code == 200
+        assert 'id="bench-table"' in r.text and 'id="stress-form"' in r.text and "bench()" in r.text
+        assert 'href="/bench"' in c.get("/").text
