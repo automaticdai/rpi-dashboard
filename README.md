@@ -127,8 +127,11 @@ To keep it running in WSL (systemd enabled in `/etc/wsl.conf`), install
 `dashboard/rpidash-dashboard-wsl.service` as a user service; it serves on port 4000
 (http://127.0.0.1:4000). Install steps are in the file's header. Logs:
 `journalctl --user -u rpidash-dashboard -f`. WSL itself only boots when something starts it,
-so to have the dashboard up at Windows logon, add a Task Scheduler task that runs
-`wsl.exe --exec /bin/true`.
+and stops the distro again once no session is open, so to have the dashboard up at Windows
+logon, add a logon Task Scheduler task that runs `wscript.exe start-wsl.vbs`, where
+`start-wsl.vbs` holds
+`CreateObject("WScript.Shell").Run "wsl.exe -d <distro> --exec /bin/sleep infinity", 0, False`
+(hidden window, one session kept open).
 
 On a Pi, see [Run the dashboard on a Pi](#run-the-dashboard-on-a-pi).
 
