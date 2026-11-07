@@ -100,6 +100,26 @@ function storageKind(spec) {
   return /nvme/.test(spec.root_device || "") ? "NVMe" : "disk";
 }
 
+// The names people use: "Raspberry Pi Compute Module 4 Rev 1.1" -> "CM4",
+// "Raspberry Pi 3 Model B Rev 1.2" -> "Pi 3B", "Raspberry Pi 5 Model B Rev 1.1" -> "Pi 5".
+function modelShort(model) {
+  if (typeof model !== "string") return "";
+  let m = model.replace(/^Raspberry /, "").replace(/ Rev [\d.]+$/, "");
+  m = m.replace(/^Pi Compute Module (\d+)(.*)$/, "CM$1$2").replace(/^(CM\d+) Plus$/, "$1+");
+  m = m.replace(/^Pi 5 Model B$/, "Pi 5");                        // the Pi 5 only comes as a B
+  m = m.replace(/ Model ([AB]) Plus$/, "$1+").replace(/ Model ([AB])$/, "$1");
+  return m;
+}
+
+// The card's single subtitle: model, OS, cores and disk type (sizes are in the bars below).
+function cardSubtitle(spec, host) {
+  const parts = [modelShort(spec.model) || host];
+  if (spec.os) parts.push(osShort(spec.os));
+  if (spec.cores) parts.push(`${spec.cores} core${spec.cores === 1 ? "" : "s"}`);
+  if (spec.root_size && storageKind(spec) !== "disk") parts.push(storageKind(spec)); // only once known
+  return parts.join(", ");
+}
+
 function hardwareLine(spec, s) {
   const parts = [];
   if (spec.os) parts.push(osShort(spec.os));
@@ -147,8 +167,7 @@ function card(p) {
     <div class="card-head"><span class="dot ${p.status}"></span><h2><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a></h2>
       <span class="temp">${s ? temp(s.temp_c) : ""}</span>
       <button class="grip" aria-label="Move ${esc(p.hostname)} (drag, or use arrow keys)" title="Drag to reorder">⠿</button></div>
-    <div class="model">${esc(spec.model || p.host)}</div>
-    <div class="hw">${esc(hardwareLine(spec, s))}</div>
+    <div class="model" title="${esc([spec.model, hardwareLine(spec, s)].filter(Boolean).join(" – "))}">${esc(cardSubtitle(spec, p.host))}</div>
     ${body}
     <div class="card-foot">${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
       <button class="small remove" title="Remove from this dashboard">Remove</button></div>`;
@@ -217,7 +236,7 @@ const TABLE_COLS = [
   ["name", "Pi", (p) => p.hostname, (p) => `<a href="/pi/${encodeURIComponent(p.id)}">${esc(p.hostname)}</a>`, false],
   ["model", "Model", (p) => (p.spec || {}).model || "", (p) => {
     const m = (p.spec || {}).model || "";
-    return `<span title="${esc(m)}">${esc(m.replace(/^Raspberry Pi /, "").replace(/ Rev [\d.]+$/, ""))}</span>`;
+    return `<span title="${esc(m)}">${esc(modelShort(m))}</span>`;
   }, false],
   ["os", "OS", (p) => osShort((p.spec || {}).os), (p) => {
     const os = (p.spec || {}).os || "";

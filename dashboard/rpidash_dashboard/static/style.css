@@ -81,7 +81,7 @@ main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 .card-head h2 { font-size: 1.2rem; }
 .temp { margin-left: auto; font-size: 1.6rem; font-weight: 700; line-height: 1; }
 .card-head h2, .temp, .brand, .pi-title { font-weight: 600; letter-spacing: .01em; }
-.model { color: var(--muted); font-size: .9rem; margin: 2px 0 0; }
+.model { color: var(--muted); font-size: .9rem; margin: 2px 0 12px; }
 .hw { color: var(--off); font-size: .85rem; margin: 0 0 12px; }
 .of { color: var(--off); font-size: .85em; text-align: right; white-space: nowrap; }
 .grip {
@@ -105,6 +105,12 @@ main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 .chip.warn { color: var(--warn); }
 .chip.off { color: var(--muted); }
 .remove { position: relative; z-index: 1; margin-left: auto; }
+/* Cards: Remove only when the card is hovered or focused (always shown on touch screens). */
+@media (hover: hover) {
+  .card:not(.row) .remove { opacity: 0; }
+  .card:not(.row):hover .remove, .card:not(.row):focus-within .remove { opacity: 1; }
+}
+.card:not(.row) .card-foot:not(:has(.chips)) { margin-top: 0; min-height: 0; }
 
 .dot { display: inline-block; width: .7em; height: .7em; border-radius: 50%; background: var(--off); margin-right: .4em; }
 .dot.online { background: var(--ok); }
