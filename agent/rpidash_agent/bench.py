@@ -21,6 +21,10 @@ TESTS = ("cpu", "disk", "net")
 MiB = 1024 * 1024
 BLK4K = 4096
 NET_HOST = "speed.cloudflare.com"
+# Cloudflare's speed test refuses some request sizes with HTTP 403 (seen: 12-18 MB, 100 MB),
+# so only sizes that have been seen to work are used, smallest first.
+NET_SIZES = (1_000_000, 10_000_000, 25_000_000)
+NET_MAX_BYTES = NET_SIZES[-1]
 
 
 class BenchError(Exception):
@@ -94,6 +98,16 @@ def _rand_io(path: str, size: int, secs: float, write: bool) -> float:
 
 
 # ---------- network ----------
+def _net_errors(fn):
+    def wrapped(*a, **k):
+        try:
+            return fn(*a, **k)
+        except (OSError, http.client.HTTPException) as e:
+            raise BenchError(f"network error talking to {NET_HOST}: {e}") from e
+    wrapped.__name__ = fn.__name__
+    return wrapped
+
+
 class CloudflareNet:
     """Download/upload against Cloudflare's speed-test endpoints over one HTTPS connection."""
 
@@ -104,11 +118,22 @@ class CloudflareNet:
     def _conn(self) -> http.client.HTTPSConnection:
         return http.client.HTTPSConnection(self.host, timeout=self.timeout)
 
+    def _check(self, r) -> None:
+        if r.status == 429:
+            r.read()
+            raise BenchError(f"{self.host} is rate-limiting this network (HTTP 429); try again later")
+        if r.status != 200:
+            r.read()
+            raise BenchError(f"{self.host} answered HTTP {r.status}")
+
+    @_net_errors
     def latency_ms(self) -> list[float]:
         c = self._conn()
         try:
             c.request("GET", "/__down?bytes=0", headers=self.headers)
-            c.getresponse().read()  # warm-up: TCP + TLS handshake
+            r = c.getresponse()  # warm-up: TCP + TLS handshake
+            self._check(r)
+            r.read()
             out = []
             for _ in range(5):
                 t = time.perf_counter()
@@ -119,18 +144,21 @@ class CloudflareNet:
         finally:
             c.close()
 
+    @_net_errors
     def download(self, nbytes: int) -> float:
         c = self._conn()
         try:
             t = time.perf_counter()
             c.request("GET", f"/__down?bytes={nbytes}", headers=self.headers)
             r = c.getresponse()
+            self._check(r)
             while r.read(65536):
                 pass
             return time.perf_counter() - t
         finally:
             c.close()
 
+    @_net_errors
     def upload(self, nbytes: int) -> float:
         c = self._conn()
         body = bytes(nbytes)
@@ -138,19 +166,32 @@ class CloudflareNet:
             t = time.perf_counter()
             c.request("POST", "/__up", body=body,
                       headers={**self.headers, "Content-Type": "application/octet-stream"})
-            c.getresponse().read()
+            r = c.getresponse()
+            self._check(r)
+            r.read()
             return time.perf_counter() - t
         finally:
             c.close()
 
 
-def _throughput(op, seconds: float, start: int, cap: int) -> float:
-    """Repeat transfers (growing chunk size) until `seconds` have been spent; return Mbit/s."""
-    total_bytes, total_t, n = 0, 0.0, start
+def _throughput(op, seconds: float) -> float:
+    """Repeat transfers, stepping up through NET_SIZES and then repeating the largest, until
+    `seconds` have been spent; return Mbit/s. A refused size is dropped and the rest used."""
+    sizes, i = list(NET_SIZES), 0
+    total_bytes, total_t = 0, 0.0
     while total_t < seconds:
-        total_t += op(n)
+        if not sizes:
+            raise BenchError(f"{NET_HOST} refused every transfer size")
+        n = sizes[min(i, len(sizes) - 1)]
+        try:
+            total_t += op(n)
+        except BenchError as e:
+            if "HTTP 403" not in str(e):
+                raise  # rate limit, timeout or network failure: report it, don't retry sizes
+            sizes.remove(n)
+            continue
         total_bytes += n
-        n = min(n * 2, cap)
+        i += 1
     return total_bytes * 8 / total_t / 1e6
 
 
@@ -158,8 +199,8 @@ def net_bench(net, seconds: float = 8.0) -> dict:
     return {
         "server": NET_HOST,
         "latency_ms": round(statistics.median(net.latency_ms()), 1),
-        "download_Mbps": _throughput(net.download, seconds, 1 * MiB, 50 * MiB),
-        "upload_Mbps": _throughput(net.upload, seconds, 1 * MiB, 20 * MiB),
+        "download_Mbps": _throughput(net.download, seconds),
+        "upload_Mbps": _throughput(net.upload, seconds),
     }
 
 

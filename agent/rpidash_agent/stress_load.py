@@ -7,7 +7,7 @@ from __future__ import annotations
 import sys
 import time
 
-from .bench import CloudflareNet
+from .bench import NET_MAX_BYTES, CloudflareNet
 
 RAM_FRACTION = 0.40
 CHUNK = 16 * 1024 * 1024
@@ -25,8 +25,8 @@ def pull_net() -> None:
     net = CloudflareNet()
     while True:
         try:
-            net.download(100 * 1024 * 1024)
-        except OSError:
+            net.download(NET_MAX_BYTES)
+        except Exception:  # network error or refused request: back off instead of spinning
             time.sleep(5)
 
 

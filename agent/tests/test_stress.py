@@ -61,3 +61,23 @@ def test_stop_and_status():
     assert {tuple(c) for c in r.calls if c[1] == "stop"} == {
         ("systemctl", "stop", "rpidash-stress-cpu"), ("systemctl", "stop", "rpidash-stress-ram"),
         ("systemctl", "stop", "rpidash-stress-net")}
+
+
+def test_net_load_backs_off_on_errors(monkeypatch):
+    from rpidash_agent import stress_load
+    from rpidash_agent.bench import BenchError
+    sleeps, calls = [], []
+
+    class Net:
+        def download(self, n):
+            calls.append(n)
+            if len(calls) >= 3:
+                raise KeyboardInterrupt  # end the endless loop for the test
+            raise BenchError("speed.cloudflare.com answered HTTP 403")
+
+    monkeypatch.setattr(stress_load, "CloudflareNet", Net)
+    monkeypatch.setattr(stress_load.time, "sleep", sleeps.append)
+    with pytest.raises(KeyboardInterrupt):
+        stress_load.pull_net()
+    assert sleeps == [5, 5]
+    assert max(calls) <= 25_000_000
