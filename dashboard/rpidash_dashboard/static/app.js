@@ -105,6 +105,7 @@ function hardwareLine(spec, s) {
 
 const WARN_TEXT = { hot: "Running hot", disk: "Disk nearly full", mem: "RAM nearly full", throttled: "Throttled or under-voltage",
                     agent_outdated: "Agent out of date" };
+const WARN_SHORT = { hot: "Hot", disk: "Disk", mem: "RAM", throttled: "Throttled", agent_outdated: "Old agent" };
 const WARN_LEVEL = (w) => (w === "hot" || w === "throttled" ? "bad" : "warn");
 const STATUS_TEXT = { online: "Online", offline: "Offline", auth_failed: "Token rejected" };
 
@@ -215,7 +216,7 @@ const TABLE_COLS = [
     const os = (p.spec || {}).os || "";
     return os ? `<span title="${esc(os)}">${esc(osShort(os))}</span>` : "–";
   }, false],
-  ["status", "Status", (p) => p.status, (p) => `<span class="dot ${p.status}"></span>${STATUS_TEXT[p.status]}`, false],
+  ["status", "Status", (p) => p.status, (p) => `<span class="dot ${p.status}" title="${STATUS_TEXT[p.status]}"></span>${p.status === "online" ? "" : STATUS_TEXT[p.status]}`, false],
   ["temp", "Temp °C", (p) => smp(p).temp_c, (p) => {
     const t = smp(p).temp_c, h = heat(t);
     return h ? `<span class="swatch" style="background:${h}"></span>${fixed(t, 1)}` : "–";
@@ -235,11 +236,8 @@ const TABLE_COLS = [
   ["net", "Network", (p) => smp(p).net_rx_bps, (p) => (p.live ? `↓ ${rate(smp(p).net_rx_bps)} ↑ ${rate(smp(p).net_tx_bps)}` : "–"), true],
   ["fan", "Fan rpm", (p) => smp(p).fan_rpm, (p) => (typeof smp(p).fan_rpm === "number" ? String(smp(p).fan_rpm) : "–"), true],
   ["uptime", "Uptime", (p) => p.live && p.live.uptime_s, (p) => (p.live ? duration(p.live.uptime_s) : "–"), true],
-  ["throttled", "Throttled", (p) => smp(p).throttled, (p) => {
-    const t = smp(p).throttled;
-    return typeof t !== "number" ? "–" : t ? `<span class="chip bad">0x${t.toString(16)}</span>` : "No";
-  }, false],
-  ["warnings", "Warnings", (p) => p.warnings.length, (p) => p.warnings.map((w) => WARN_TEXT[w] || esc(w)).join(", ") || "", false],
+  ["warnings", "Warnings", (p) => p.warnings.length,
+   (p) => p.warnings.map((w) => `<span class="chip ${WARN_LEVEL(w)}" title="${esc(WARN_TEXT[w] || w)}">${WARN_SHORT[w] || esc(w)}</span>`).join(" "), false],
 ];
 const smp = (p) => (p.live && p.live.sample) || {};
 const diskUsed = (p) => {

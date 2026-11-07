@@ -134,7 +134,7 @@ main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 
 /* Overview: table view */
 table.pis-table { border-collapse: collapse; width: 100%; font-size: .9rem; }
-table.pis-table th, table.pis-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+table.pis-table th, table.pis-table td { padding: 7px 7px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
 table.pis-table .num { text-align: right; }
 table.pis-table tbody tr:last-child th, table.pis-table tbody tr:last-child td { border-bottom: 0; }
 table.pis-table tbody th { font-weight: 600; }
