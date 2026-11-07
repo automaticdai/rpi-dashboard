@@ -140,7 +140,8 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     async def refresh_spec(pi: Pi, agent_version) -> None:
         last = state["spec_at"].get(pi.id)
         came_back = state["status"].get(pi.id) != "online"
-        upgraded = agent_version is not None and agent_version != (pi.spec or {}).get("agent_version")
+        stored = (pi.spec or {}).get("agent_version")
+        upgraded = agent_version is not None and stored is not None and agent_version != stored
         if not (came_back or upgraded) and last is not None and time.monotonic() - last < SPEC_REFRESH_S:
             return
         try:
