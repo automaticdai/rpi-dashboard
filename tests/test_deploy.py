@@ -44,8 +44,20 @@ def env(tmp_path):
     token.write_text("t" * 32)
     reg = tmp_path / "pis.json"
     reg.write_text(json.dumps({"pis": [{"hostname": "rpi-a"}, {"hostname": "rpi-b"}]}))
+    # Every path deploy.sh can write must point into tmp_path: never the real token or dashboard.toml.
     return {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "STUB_LOG": str(tmp_path / "log"),
-            "RPIDASH_TOKEN_FILE": str(token), "RPIDASH_REGISTRY": str(reg)}
+            "RPIDASH_TOKEN_FILE": str(token), "RPIDASH_REGISTRY": str(reg),
+            "RPIDASH_DASHBOARD_CONFIG": str(tmp_path / "dashboard.toml")}
+
+
+@pytest.fixture(autouse=True)
+def real_files_untouched():
+    """Guard: running these tests must never change the developer's real config files."""
+    real = [REPO / "dashboard.toml", Path.home() / ".config/rpidash/token"]
+    before = {p: p.read_bytes() if p.exists() else None for p in real}
+    yield
+    for p, data in before.items():
+        assert (p.read_bytes() if p.exists() else None) == data, f"test modified {p}"
 
 
 def deploy(env, *args, **extra):
