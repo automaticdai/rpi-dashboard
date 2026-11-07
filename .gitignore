@@ -3,5 +3,6 @@ __pycache__/
 *.egg-info/
 *.toml.local
 pis.json*
+bench.json*
 dashboard.toml
 .pytest_cache/
