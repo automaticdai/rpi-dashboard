@@ -128,7 +128,7 @@ main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 .ticks input[type="number"] { width: 4.5rem; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
 #bench-progress { margin-left: 12px; }
 .results { margin-bottom: 24px; }
-.results h2 { margin-bottom: 8px; }
+.results-head { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
 .table-scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 table.bench { border-collapse: collapse; width: 100%; font-size: .95rem; }
 table.bench th, table.bench td { padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }

@@ -418,7 +418,16 @@ function when(iso) {
   return iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
 }
 
-function benchCell(group, key, digits, best) {
+// Benchmark table view: raw values, or each column relative to its lowest-performing Pi (1.0×).
+let benchView = "values";
+try { benchView = localStorage.getItem("benchView") === "relative" ? "relative" : "values"; } catch { /* private mode */ }
+
+function relativeTo(key, v, worst) {
+  // Higher is better everywhere except latency, where the worst is the highest value.
+  return LOWER_IS_BETTER.has(key) ? worst / v : v / worst;
+}
+
+function benchCell(group, key, digits, best, worst) {
   if (!group) return `<td class="num empty">–</td>`;
   const v = group[key];
   if (typeof v !== "number") {
@@ -428,21 +437,27 @@ function benchCell(group, key, digits, best) {
   }
   const stale = group.error ? ` Last run failed: ${group.error}` : "";
   const cls = v === best ? "num best" : "num";
-  return `<td class="${cls}" title="Measured ${esc(when(group.measured))}.${esc(stale)}">${v.toLocaleString(undefined, { maximumFractionDigits: digits })}</td>`;
+  const raw = v.toLocaleString(undefined, { maximumFractionDigits: digits });
+  const shown = benchView === "relative" && worst
+    ? `${relativeTo(key, v, worst).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}×`
+    : raw;
+  const tip = benchView === "relative" ? `${raw}. ` : "";
+  return `<td class="${cls}" title="${esc(tip)}Measured ${esc(when(group.measured))}.${esc(stale)}">${shown}</td>`;
 }
 
 function renderBenchTable(rows, running) {
-  const best = {};
+  const best = {}, worst = {};
   for (const [g, k] of BENCH_COLS) {
-    const vals = rows.map((r) => r.results[g] && r.results[g][k]).filter((v) => typeof v === "number");
+    const vals = rows.map((r) => r.results[g] && r.results[g][k]).filter((v) => typeof v === "number" && v > 0);
     if (vals.length > 1) best[k] = LOWER_IS_BETTER.has(k) ? Math.min(...vals) : Math.max(...vals);
+    if (vals.length) worst[k] = LOWER_IS_BETTER.has(k) ? Math.max(...vals) : Math.min(...vals);
   }
   $("#bench-table tbody").innerHTML = rows.map((r) => {
     const run = running[r.id];
     const note = run ? `<span class="running">${run.unreachable ? "waiting for the Pi" : `running ${TEST_NAME[run.current] || ""}`}</span>` : "";
     const cpu = r.results.cpu;
     const sub = cpu && cpu.compiler ? `<span class="unit" title="${esc(cpu.compiler)}">${esc(r.model || "")}</span>` : `<span class="unit">${esc(r.model || "")}</span>`;
-    return `<tr><th scope="row">${esc(r.hostname)} ${note}<br>${sub}</th>${BENCH_COLS.map(([g, k, d]) => benchCell(r.results[g], k, d, best[k])).join("")}</tr>`;
+    return `<tr><th scope="row">${esc(r.hostname)} ${note}<br>${sub}</th>${BENCH_COLS.map(([g, k, d]) => benchCell(r.results[g], k, d, best[k], worst[k])).join("")}</tr>`;
   }).join("");
 }
 
@@ -462,12 +477,28 @@ function bench() {
   let pollTimer;
   const ticked = (sel) => [...document.querySelectorAll(sel)].filter((i) => i.checked).map((i) => i.value);
 
+  let lastTable = null;
+  document.querySelectorAll(".results-head .seg button").forEach((b) => {
+    b.setAttribute("aria-pressed", String(b.dataset.view === benchView));
+    b.addEventListener("click", () => {
+      benchView = b.dataset.view;
+      try { localStorage.setItem("benchView", benchView); } catch { /* fine */ }
+      document.querySelectorAll(".results-head .seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      $("#bench-note").textContent = benchView === "relative"
+        ? "Each column is divided by its lowest-performing Pi (1.0×); for latency, lower latency gives a higher ×. Hover over a number for the measured value."
+        : "The best result in each column is in bold. Hover over a number to see when it was measured.";
+      if (lastTable) renderBenchTable(lastTable.rows, lastTable.running);
+    });
+  });
+  if (benchView === "relative") document.querySelector('.results-head .seg button[data-view="relative"]').click();
+
   async function refresh() {
     clearTimeout(pollTimer);
     let pis = [], table;
     try { [pis, table] = await Promise.all([api("GET", "/api/pis"), api("GET", "/api/bench")]); }
     catch (e) { toast(`Couldn't load benchmarks: ${e.message}`); pollTimer = setTimeout(refresh, 10000); return; }
     tickList($("#bench-pis"), pis, "pi", false);
+    lastTable = table;
     renderBenchTable(table.rows, table.running);
     const n = Object.keys(table.running).length;
     $("#bench-run").disabled = n > 0;

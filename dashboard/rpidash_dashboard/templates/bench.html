@@ -23,7 +23,12 @@
 </section>
 
 <section class="results">
-  <h2>Results</h2>
+  <div class="results-head">
+    <h2>Results</h2>
+    <div class="seg" role="group" aria-label="Show results as">
+      <button type="button" data-view="values" aria-pressed="true">Values</button><button type="button" data-view="relative">× slowest Pi</button>
+    </div>
+  </div>
   <div class="table-scroll">
     <table id="bench-table" class="bench">
       <thead>
@@ -41,7 +46,7 @@
       <tbody></tbody>
     </table>
   </div>
-  <p class="muted">The best result in each column is in bold. Hover over a number to see when it was measured.</p>
+  <p class="muted" id="bench-note">The best result in each column is in bold. Hover over a number to see when it was measured.</p>
 </section>
 
 {% endblock %}
