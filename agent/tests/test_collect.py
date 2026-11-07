@@ -89,3 +89,19 @@ def test_read_fan_rpm(tmp_path):
 
 def test_sample_has_fan_field():
     assert "fan_rpm" in collect.FIELDS
+
+
+CT = namedtuple("CT", "user nice system idle iowait irq softirq steal guest guest_nice")
+
+
+def test_cpu_percent_from_own_deltas_not_psutil_thread_state(monkeypatch):
+    import threading
+    seq = iter([CT(100, 0, 100, 800, 0, 0, 0, 0, 0, 0),    # since boot: 20% busy
+                CT(150, 0, 150, 900, 0, 0, 0, 0, 0, 0)])   # +100 busy, +100 idle -> 50%
+    monkeypatch.setattr(psutil, "cpu_times", lambda: next(seq))
+    monkeypatch.setattr(psutil, "cpu_percent", lambda *a, **k: (_ for _ in ()).throw(AssertionError("not used")))
+    c = Collector()
+    out = {}
+    t = threading.Thread(target=lambda: out.update(a=c.cpu_pct()))
+    t.start(); t.join()
+    assert out["a"] == pytest.approx(50.0)  # a brand-new thread still sees the real delta

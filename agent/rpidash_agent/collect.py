@@ -173,7 +173,24 @@ def top_processes(n: int = 10) -> list[dict]:
 class Collector:
     def __init__(self) -> None:
         self._prev_net: tuple[float, int, int] | None = None
-        psutil.cpu_percent(None)  # prime the CPU counter
+        # CPU % is worked out here from cpu_times() deltas. psutil.cpu_percent(None) keeps its
+        # baseline per thread, and the HTTP server answers each request on a new thread.
+        self._prev_cpu = self._cpu_counters()
+
+    @staticmethod
+    def _cpu_counters() -> tuple[float, float]:
+        t = psutil.cpu_times()
+        idle = t.idle + getattr(t, "iowait", 0.0)
+        return sum(t), idle
+
+    def cpu_pct(self) -> float:
+        total, idle = self._cpu_counters()
+        prev_total, prev_idle = self._prev_cpu
+        self._prev_cpu = (total, idle)
+        dt = total - prev_total
+        if dt <= 0:
+            return 0.0
+        return max(0.0, min(100.0, 100.0 * (1 - (idle - prev_idle) / dt)))
 
     def _net(self, now: float) -> tuple[float, float]:
         rx = tx = 0
@@ -193,7 +210,7 @@ class Collector:
         rx, tx = self._net(now)
         return Sample(
             ts=now,
-            cpu_pct=psutil.cpu_percent(None),
+            cpu_pct=self.cpu_pct(),
             load1=os.getloadavg()[0],
             mem_used=vm.total - vm.available,
             mem_total=vm.total,

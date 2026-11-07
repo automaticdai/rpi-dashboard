@@ -47,13 +47,19 @@ class FakeJobs:
         return {"state": "running", "job": 7}
 
 
+STRESS_STATE = {"cpu": False, "ram": False, "net": False}
+
+
 class FakeStress:
     def __init__(self):
         self.calls = []
 
     def start(self, **kw):
+        from rpidash_agent.stress import StressError
         if kw["minutes"] > 30:
             raise ValueError("minutes must be between 1 and 30")
+        if kw["minutes"] == 7:
+            raise StressError("cpu: Failed to find executable rpibench")
         self.calls.append(("start", kw))
         return {"cpu": kw["cpu"], "ram": kw["ram"], "net": kw["net"]}
 
@@ -62,7 +68,7 @@ class FakeStress:
         return {"cpu": False, "ram": False, "net": False}
 
     def status(self):
-        return {"cpu": False, "ram": True, "net": False}
+        return dict(STRESS_STATE)
 
 
 @pytest.fixture
@@ -94,7 +100,10 @@ def call(url, method="GET", token=TOKEN, body=None):
         with urllib.request.urlopen(req, timeout=5) as r:
             return r.status, json.loads(r.read())
     except urllib.error.HTTPError as e:
-        return e.code, None
+        try:
+            return e.code, json.loads(e.read())
+        except ValueError:
+            return e.code, None
 
 
 def test_health_no_auth(agent):
@@ -224,7 +233,7 @@ def test_bench_start_and_status(agent):
     assert call(base + "/bench", "POST", token=None, body={"tests": ["cpu"]})[0] == 401
     code, body = call(base + "/bench", "POST", body={"tests": ["cpu", "disk"]})
     assert code == 202 and body == {"job": 7}
-    assert call(base + "/bench")[1] == {"state": "running", "job": 7}
+    assert call(base + "/bench")[1] == {"state": "running", "job": 7, "id": "mid-1"}
     assert call(base + "/bench", "POST", body={"tests": ["busy"]})[0] == 409
     assert call(base + "/bench", "POST", body={"tests": ["gpu"]})[0] == 400
     assert call(base + "/bench", "POST", body={"tests": "cpu"})[0] == 400
@@ -249,7 +258,11 @@ def test_stress_start_stop_and_live(agent):
     assert code == 200 and body == {"cpu": True, "ram": False, "net": True}
     assert call(base + "/stress", "POST", body={"cpu": True, "minutes": 99})[0] == 400
     assert call(base + "/stress/stop", "POST")[1] == {"cpu": False, "ram": False, "net": False}
-    assert call(base + "/live")[1]["stress"] == {"cpu": False, "ram": True, "net": False}
+    STRESS_STATE["ram"] = True
+    try:
+        assert call(base + "/live")[1]["stress"] == {"cpu": False, "ram": True, "net": False}
+    finally:
+        STRESS_STATE["ram"] = False
 
 
 
@@ -264,3 +277,24 @@ def test_live_reports_agent_version(agent):
     from rpidash_agent import __version__
     base, _, _ = agent
     assert call(base + "/live")[1]["version"] == __version__
+
+
+def test_bench_refused_while_stress_runs(agent):
+    base, _, _ = agent
+    STRESS_STATE["ram"] = True
+    try:
+        code, body = call(base + "/bench", "POST", body={"tests": ["cpu"]})
+    finally:
+        STRESS_STATE["ram"] = False
+    assert code == 409 and "stress" in body["error"]
+
+
+def test_bench_status_includes_agent_id(agent):
+    base, _, _ = agent
+    assert call(base + "/bench")[1]["id"] == "mid-1"
+
+
+def test_stress_start_failure_is_409(agent):
+    base, _, _ = agent
+    code, body = call(base + "/stress", "POST", body={"cpu": True, "minutes": 7})
+    assert code == 409 and "rpibench" in body["error"]

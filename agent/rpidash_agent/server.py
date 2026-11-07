@@ -18,6 +18,7 @@ from . import __version__
 from .collect import machine_id, read_spec, top_processes
 from .config import AgentConfig
 from .bench import BenchError
+from .stress import StressError
 from .history import RANGES, History
 from .services import Services
 
@@ -87,7 +88,9 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
                     return self._send(503, {"error": "live readings unavailable"})
                 return self._send(200, {"id": id_fn(), "sample": now_fn()})
             if url.path == "/bench":
-                return self._send(200, jobs.status()) if jobs else self._send(503, {"error": "benchmarks unavailable"})
+                if not jobs:
+                    return self._send(503, {"error": "benchmarks unavailable"})
+                return self._send(200, {**jobs.status(), "id": id_fn()})
             if url.path == "/live":
                 latest = history.latest()
                 return self._send(200, {
@@ -129,13 +132,15 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
                         tests = body.get("tests")
                         if not isinstance(tests, list) or not all(isinstance(t, str) for t in tests):
                             raise ValueError("tests must be a list of names")
+                        if stress is not None and any(stress.status().values()):
+                            return self._send(409, {"error": "stress is running on this Pi; stop it before benchmarking"})
                         return self._send(202, {"job": jobs.start(tests)})
                     minutes = body.get("minutes", 5)
                     return self._send(200, stress.start(cpu=bool(body.get("cpu")), ram=bool(body.get("ram")),
                                                         net=bool(body.get("net")), minutes=minutes))
                 except ValueError as e:
                     return self._send(400, {"error": str(e)})
-                except BenchError as e:
+                except (BenchError, StressError) as e:
                     return self._send(409, {"error": str(e)})
             if len(parts) != 4 or parts[1] != "services":
                 return self._send(404, {"error": "not found"})

@@ -107,3 +107,37 @@ def test_mirror_urls_are_https_package_mirrors():
     from rpidash_agent.stress_load import MIRROR_URLS
     assert len(MIRROR_URLS) >= 3 and all(u.startswith("https://") for u in MIRROR_URLS)
     assert not any("cloudflare" in u for u in MIRROR_URLS)
+
+
+def test_stress_units_are_sandboxed():
+    r = Runner()
+    stress(r).start(cpu=True, ram=True, net=True, minutes=1)
+    for c in (c for c in r.calls if c[0] == "systemd-run"):
+        for prop in ("--property=DynamicUser=yes", "--property=ProtectSystem=strict",
+                     "--property=ProtectHome=yes", "--property=NoNewPrivileges=yes"):
+            assert prop in c, (prop, c)
+
+
+def test_failed_start_is_reported():
+    from rpidash_agent.stress import StressError
+
+    class Failing(Runner):
+        def __call__(self, cmd):
+            if cmd[0] == "systemd-run" and "--unit=rpidash-stress-cpu" in cmd:
+                self.calls.append(cmd)
+                return subprocess.CompletedProcess(cmd, 1, "", "Failed to find executable rpibench")
+            return super().__call__(cmd)
+
+    with pytest.raises(StressError, match="cpu.*rpibench"):
+        stress(Failing()).start(cpu=True, ram=True, net=False, minutes=1)
+
+
+def test_runner_exceptions_become_stress_errors():
+    from rpidash_agent.stress import StressError
+
+    def boom(cmd):
+        raise subprocess.TimeoutExpired(cmd, 30)
+
+    with pytest.raises(StressError):
+        stress(boom).start(cpu=True, ram=False, net=False, minutes=1)
+    assert stress(boom).status() == {"cpu": False, "ram": False, "net": False}
