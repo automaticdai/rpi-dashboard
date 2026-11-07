@@ -146,7 +146,10 @@ function card(p) {
 
 // ---------- list view ----------
 let layout = "cards";
-try { layout = localStorage.getItem("overviewLayout") === "list" ? "list" : "cards"; } catch { /* private mode */ }
+try {
+  const saved = localStorage.getItem("overviewLayout");
+  layout = ["cards", "list", "table"].includes(saved) ? saved : "cards";
+} catch { /* private mode */ }
 
 function usage(label, v, amount) {
   return `<span class="cell usage"><span class="lbl">${label}</span>` +
@@ -190,9 +193,83 @@ function listRow(p) {
   return el;
 }
 
+// ---------- table view: sortable, numbers only ----------
+const TABLE_COLS = [
+  // [key, heading, value(p) for sorting, cell html(p), numeric]
+  ["name", "Pi", (p) => p.hostname, (p) => `<a href="/pi/${encodeURIComponent(p.id)}">${esc(p.hostname)}</a>`, false],
+  ["model", "Model", (p) => (p.spec || {}).model || "", (p) => {
+    const m = (p.spec || {}).model || "";
+    return `<span title="${esc(m)}">${esc(m.replace(/^Raspberry Pi /, "").replace(/ Rev [\d.]+$/, ""))}</span>`;
+  }, false],
+  ["status", "Status", (p) => p.status, (p) => `<span class="dot ${p.status}"></span>${STATUS_TEXT[p.status]}`, false],
+  ["temp", "Temp °C", (p) => smp(p).temp_c, (p) => {
+    const t = smp(p).temp_c, h = heat(t);
+    return h ? `<span class="swatch" style="background:${h}"></span>${fixed(t, 1)}` : "–";
+  }, true],
+  ["cpu", "CPU %", (p) => smp(p).cpu_pct, (p) => fixed(smp(p).cpu_pct, 0), true],
+  ["load", "Load", (p) => smp(p).load1, (p) => fixed(smp(p).load1, 2), true],
+  ["ram", "RAM", (p) => smp(p).mem_used, (p) => {
+    const total = ramBytes((p.spec || {}).ram_total || smp(p).mem_total);
+    return typeof smp(p).mem_used === "number" ? usedOf(smp(p).mem_used, total) : (total ? `<span class="of">${ramSize(total)}</span>` : "–");
+  }, true],
+  ["rampct", "RAM %", (p) => memPct(smp(p)), (p) => fixed(memPct(smp(p)), 0), true],
+  ["disk", "Disk", (p) => diskUsed(p), (p) => {
+    const size = (p.spec || {}).root_size;
+    return diskUsed(p) != null ? usedOf(diskUsed(p), size) : (size ? `<span class="of">${bytes(size)}</span>` : "–");
+  }, true],
+  ["diskpct", "Disk %", (p) => smp(p).disk_pct, (p) => fixed(smp(p).disk_pct, 0), true],
+  ["down", "Down", (p) => smp(p).net_rx_bps, (p) => rate(smp(p).net_rx_bps), true],
+  ["up", "Up", (p) => smp(p).net_tx_bps, (p) => rate(smp(p).net_tx_bps), true],
+  ["fan", "Fan rpm", (p) => smp(p).fan_rpm, (p) => (typeof smp(p).fan_rpm === "number" ? String(smp(p).fan_rpm) : "–"), true],
+  ["uptime", "Uptime", (p) => p.live && p.live.uptime_s, (p) => (p.live ? duration(p.live.uptime_s) : "–"), true],
+  ["throttled", "Throttled", (p) => smp(p).throttled, (p) => {
+    const t = smp(p).throttled;
+    return t == null ? "–" : t ? `<span class="chip bad">0x${t.toString(16)}</span>` : "No";
+  }, false],
+  ["warnings", "Warnings", (p) => p.warnings.length, (p) => p.warnings.map((w) => WARN_TEXT[w] || esc(w)).join(", ") || "", false],
+];
+const smp = (p) => (p.live && p.live.sample) || {};
+const diskUsed = (p) => {
+  const s = smp(p), size = (p.spec || {}).root_size;
+  return typeof s.disk_pct === "number" && size ? (s.disk_pct / 100) * size : null;
+};
+
+let tableSort = { key: null, dir: 1 }; // key null = the saved (drag) order
+try { tableSort = JSON.parse(localStorage.getItem("overviewTableSort")) || tableSort; } catch { /* fine */ }
+
+function pisTable(pis) {
+  const col = TABLE_COLS.find((c) => c[0] === tableSort.key);
+  const rows = col ? [...pis].sort((a, b) => {
+    const x = col[2](a), y = col[2](b);
+    if (x == null || x === "") return 1; // blanks last either way
+    if (y == null || y === "") return -1;
+    return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * tableSort.dir;
+  }) : pis;
+  const wrap = document.createElement("div");
+  wrap.className = "table-scroll";
+  wrap.innerHTML = `<table class="pis-table"><thead><tr>${TABLE_COLS.map(([k, label, , , num]) => {
+    const sorted = tableSort.key === k ? (tableSort.dir > 0 ? "ascending" : "descending") : "none";
+    const arrow = sorted === "ascending" ? " ▲" : sorted === "descending" ? " ▼" : "";
+    return `<th scope="col" class="${num ? "num" : ""}" aria-sort="${sorted}"><button class="sort" data-key="${k}">${label}${arrow}</button></th>`;
+  }).join("")}</tr></thead><tbody>${rows.map((p) => `<tr class="${p.status}">${TABLE_COLS.map(([k, , , cell, num], i) =>
+    i === 0 ? `<th scope="row">${cell(p)}</th>` : `<td class="${num ? "num" : ""}">${cell(p)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  wrap.querySelectorAll("button.sort").forEach((b) => b.addEventListener("click", () => {
+    const k = b.dataset.key;
+    // first click sorts (numbers biggest first), second reverses, third returns to the saved order
+    if (tableSort.key !== k) tableSort = { key: k, dir: TABLE_COLS.find((c) => c[0] === k)[4] ? -1 : 1 };
+    else if (tableSort.dir === (TABLE_COLS.find((c) => c[0] === k)[4] ? -1 : 1)) tableSort.dir *= -1;
+    else tableSort = { key: null, dir: 1 };
+    try { localStorage.setItem("overviewTableSort", JSON.stringify(tableSort)); } catch { /* fine */ }
+    if (lastPis) renderPis(lastPis);
+    document.querySelector(`#pis button.sort[data-key="${k}"]`)?.focus();
+  }));
+  return wrap;
+}
+
 function applyLayout() {
   $("#pis").classList.toggle("list", layout === "list");
   $("#pis").classList.toggle("grid", layout === "cards");
+  $("#pis").classList.toggle("tableview", layout === "table");
   $("#list-head").hidden = layout !== "list";
   document.querySelectorAll(".view-bar .seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.layout === layout)));
 }
@@ -254,15 +331,23 @@ function setupReorder() {
   });
 }
 
+let lastPis = null; // the latest /api/pis answer, so switching view or sorting redraws instantly
+
 async function refreshOverview() {
   if (dragging) return; // don't rebuild cards under the pointer
   let pis;
   try { pis = await api("GET", "/api/pis"); } catch (e) { toast(`Couldn't load Pis: ${e.message}`); return; }
   if (dragging) return;
+  lastPis = pis;
+  renderPis(pis);
+}
+
+function renderPis(pis) {
   const grid = $("#pis");
   const focusedGrip = document.activeElement && document.activeElement.closest(".grip") &&
     document.activeElement.closest(".card").dataset.id;
-  grid.replaceChildren(...pis.map(layout === "list" ? listRow : card));
+  if (layout === "table") grid.replaceChildren(pisTable(pis));
+  else grid.replaceChildren(...pis.map(layout === "list" ? listRow : card));
   if (focusedGrip) grid.querySelector(`.card[data-id="${CSS.escape(focusedGrip)}"] .grip`)?.focus();
   $("#empty").hidden = pis.length > 0;
   const online = pis.filter((p) => p.status === "online").length;
@@ -311,7 +396,8 @@ function overview() {
     layout = b.dataset.layout;
     try { localStorage.setItem("overviewLayout", layout); } catch { /* fine */ }
     applyLayout();
-    refreshOverview();
+    if (lastPis) renderPis(lastPis);
+    else refreshOverview();
   }));
   refreshOverview();
   setInterval(refreshOverview, REFRESH_MS);

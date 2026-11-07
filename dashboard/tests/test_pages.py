@@ -47,3 +47,4 @@ def test_overview_has_cards_list_switch(make_client):
     with c:
         r = c.get("/")
     assert 'data-layout="cards"' in r.text and 'data-layout="list"' in r.text and 'id="list-head"' in r.text
+    assert 'data-layout="table"' in r.text
