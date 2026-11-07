@@ -341,3 +341,14 @@ def test_disk_result_remembers_which_disk(make_client):
         fake.bench_status["10.0.0.1"] = done(1, {"disk": {"seq_read_MBps": 20.0}})
         disk = c.get("/api/bench").json()["rows"][0]["results"]["disk"]
     assert disk["root_size"] == 7_200_000_000 and disk["root_device"] == "/dev/mmcblk0p2"
+
+
+def test_spec_refreshed_when_agent_version_changes(make_client):
+    c, reg, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    fake.spec = {"model": "Pi", "agent_version": "0.1.0"}         # old agent still answering /spec
+    with c:
+        c.get("/api/pis")                                         # first sight: stores the 0.1.0 spec
+        assert reg.get("A").spec["agent_version"] == "0.1.0"
+        fake.spec = {"model": "Pi", "agent_version": "0.2.0", "storage": "SD"}  # upgraded, never offline
+        c.get("/api/pis")                                         # /live says 0.2.0 != stored 0.1.0
+    assert reg.get("A").spec.get("storage") == "SD"

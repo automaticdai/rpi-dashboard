@@ -137,10 +137,11 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             raise HTTPException(404, "unknown Pi")
         return pi
 
-    async def refresh_spec(pi: Pi) -> None:
+    async def refresh_spec(pi: Pi, agent_version) -> None:
         last = state["spec_at"].get(pi.id)
         came_back = state["status"].get(pi.id) != "online"
-        if not came_back and last is not None and time.monotonic() - last < SPEC_REFRESH_S:
+        upgraded = agent_version is not None and agent_version != (pi.spec or {}).get("agent_version")
+        if not (came_back or upgraded) and last is not None and time.monotonic() - last < SPEC_REFRESH_S:
             return
         try:
             spec = await asyncio.wait_for(agents.spec(pi.host, pi.port), call_timeout())
@@ -160,7 +161,7 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             else:
                 status = "online"
                 pi.last_seen = _now_iso()
-                await refresh_spec(pi)
+                await refresh_spec(pi, live.get("version"))
         except AgentAuthError:
             status = "auth_failed"
         except (AgentError, PermissionError, asyncio.TimeoutError):
