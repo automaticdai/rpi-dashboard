@@ -24,6 +24,17 @@ def test_static_chartjs(make_client):
     assert r.status_code == 200 and len(r.content) > 100_000
 
 
+def test_favicon_linked_on_every_page_and_served(make_client):
+    c, _, _ = make_client({}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        for path in ("/", "/pi/A", "/bench", "/stress"):
+            r = c.get(path)
+            assert '<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">' in r.text, path
+        icon = c.get("/static/favicon.svg")
+    assert icon.status_code == 200
+    assert icon.headers["content-type"].startswith("image/svg+xml")
+
+
 def test_bench_page_renders_and_is_linked(make_client):
     c, _, _ = make_client({})
     with c:

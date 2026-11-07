@@ -43,7 +43,7 @@ h2 { font-size: 1.05rem; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px;
   padding: 16px 24px; background: var(--panel); border-bottom: 1px solid var(--line);
 }
-.brand { font-weight: 700; font-size: 1.25rem; text-decoration: none; }
+.brand { font-weight: 700; font-size: 1.25rem; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
 .summary { color: var(--muted); }
 .add { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .add input {
