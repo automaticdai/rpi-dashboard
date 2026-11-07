@@ -63,21 +63,47 @@ def test_stop_and_status():
         ("systemctl", "stop", "rpidash-stress-net")}
 
 
-def test_net_load_backs_off_on_errors(monkeypatch):
+
+def test_net_load_rotates_mirrors_and_backs_off(monkeypatch):
     from rpidash_agent import stress_load
-    from rpidash_agent.bench import BenchError
-    sleeps, calls = [], []
+    fetched, sleeps = [], []
 
-    class Net:
-        def download(self, n):
-            calls.append(n)
-            if len(calls) >= 3:
-                raise KeyboardInterrupt  # end the endless loop for the test
-            raise BenchError("speed.cloudflare.com answered HTTP 403")
+    def fetch(url):
+        fetched.append(url)
+        if len(fetched) >= 8:
+            raise KeyboardInterrupt  # end the endless loop for the test
+        if "fail" in url:
+            raise OSError("connection refused")
 
-    monkeypatch.setattr(stress_load, "CloudflareNet", Net)
+    urls = ["https://a.example/big", "https://fail.example/big", "https://c.example/big"]
+    monkeypatch.setattr(stress_load, "MIRROR_URLS", urls)
+    monkeypatch.setattr(stress_load, "fetch", fetch)
     monkeypatch.setattr(stress_load.time, "sleep", sleeps.append)
     with pytest.raises(KeyboardInterrupt):
         stress_load.pull_net()
-    assert sleeps == [5, 5]
-    assert max(calls) <= 25_000_000
+    assert fetched[:4] == urls + [urls[0]]  # round-robin, a failure moves on to the next mirror
+    assert sleeps == []  # one failure among working mirrors needs no back-off
+
+
+def test_net_load_backs_off_when_every_mirror_fails(monkeypatch):
+    from rpidash_agent import stress_load
+    fetched, sleeps = [], []
+
+    def fetch(url):
+        fetched.append(url)
+        if len(fetched) >= 7:
+            raise KeyboardInterrupt
+        raise OSError("offline")
+
+    monkeypatch.setattr(stress_load, "MIRROR_URLS", ["https://a.example/x", "https://b.example/x"])
+    monkeypatch.setattr(stress_load, "fetch", fetch)
+    monkeypatch.setattr(stress_load.time, "sleep", sleeps.append)
+    with pytest.raises(KeyboardInterrupt):
+        stress_load.pull_net()
+    assert sleeps == [30, 30, 30]  # a full round of failures -> wait before trying again
+
+
+def test_mirror_urls_are_https_package_mirrors():
+    from rpidash_agent.stress_load import MIRROR_URLS
+    assert len(MIRROR_URLS) >= 3 and all(u.startswith("https://") for u in MIRROR_URLS)
+    assert not any("cloudflare" in u for u in MIRROR_URLS)

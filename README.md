@@ -24,7 +24,9 @@ you can come back to it later, and a round only replaces the numbers it measured
 ### Stress
 
 Start a CPU, RAM and/or network load on the ticked Pis and watch them live: CPU, RAM,
-temperature and network, read every 2 seconds, one line per Pi. Every load stops by itself
+temperature and network, read every 2 seconds, one line per Pi. The network load downloads
+large package-index files from Debian and Ubuntu mirrors in rotation (mirrors exist to serve
+big downloads; a public speed-test site rate-limits this kind of traffic). Every load stops by itself
 after the time you choose (1 to 30 minutes), or when you press Stop.
 
 ![Stress tab: controls to load the ticked Pis, and live charts of CPU, RAM, temperature and network with one line per Pi](docs/screenshots/stress.png)

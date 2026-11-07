@@ -25,7 +25,9 @@ dashboard react. Results are kept so the comparison table can be revisited witho
   present the CPU test reports "rpibench not built".
 - INT score in Mops/s (checksum, integer matrix, prime trial division mix); FP score in MFLOPS
   (double matrix multiply + sqrt work). Each run ~5 s; working set fits in cache.
-- Network stress downloads from Cloudflare in a loop. Every stress run auto-stops after its
+- Network stress downloads large package-index files (stable names, 38-51 MB) from Debian and
+  Ubuntu mirrors in rotation. (Owner's choice, 2026-11-07, after looping Cloudflare downloads
+  got the home network rate-limited: HTTP 403/429.) Every stress run auto-stops after its
   duration (default 5 min, max 30 min), so nothing runs forever if the dashboard goes away.
 - Stress and CPU benchmarks run as transient systemd units (`systemd-run`), outside the agent's
   80 MB memory cap and nice level; Stop = `systemctl stop`. RAM stress holds 40 % of
