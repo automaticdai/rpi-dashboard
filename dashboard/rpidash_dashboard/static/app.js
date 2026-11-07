@@ -93,13 +93,20 @@ function osShort(os) {
   return m ? `${m[1]} ${m[2]}` : os;
 }
 
+// "SD", "eMMC", "NVMe", "USB", "SATA" from the agent; older agents don't say, so guess NVMe
+// from the device name and otherwise just say "disk".
+function storageKind(spec) {
+  if (typeof spec.storage === "string" && spec.storage) return spec.storage;
+  return /nvme/.test(spec.root_device || "") ? "NVMe" : "disk";
+}
+
 function hardwareLine(spec, s) {
   const parts = [];
   if (spec.os) parts.push(osShort(spec.os));
   if (spec.cores) parts.push(`${spec.cores} core${spec.cores === 1 ? "" : "s"}`);
   const ram = ramSize(spec.ram_total || (s && s.mem_total));
   if (ram) parts.push(`${ram} RAM`);
-  if (spec.root_size) parts.push(`${bytes(spec.root_size)} disk`);
+  if (spec.root_size) parts.push(`${bytes(spec.root_size)} ${storageKind(spec)}`);
   return parts.join(", ");
 }
 
@@ -510,7 +517,7 @@ function renderSpec(spec) {
   const ifaces = (spec.interfaces || []).map((i) => `${i.name}: ${i.ipv4 || "no IPv4"}${i.mac ? ` (${i.mac})` : ""}`).join("\n");
   const rows = [
     ["Model", spec.model], ["CPU", `${spec.cpu} (${spec.cores} cores)`], ["RAM", bytes(spec.ram_total)],
-    ["Storage", `${spec.root_device || ""} ${bytes(spec.root_size)}`], ["OS", spec.os], ["Kernel", `${spec.kernel} (${spec.arch})`],
+    ["Storage", `${bytes(spec.root_size)} ${storageKind(spec)} (${spec.root_device || "unknown device"})`], ["OS", spec.os], ["Kernel", `${spec.kernel} (${spec.arch})`],
     ["Serial", spec.serial], ["Network", ifaces], ["Booted", spec.boot_time ? new Date(spec.boot_time * 1000).toLocaleString() : ""],
     ["Agent", spec.agent_version],
   ];

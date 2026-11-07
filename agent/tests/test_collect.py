@@ -105,3 +105,33 @@ def test_cpu_percent_from_own_deltas_not_psutil_thread_state(monkeypatch):
     t = threading.Thread(target=lambda: out.update(a=c.cpu_pct()))
     t.start(); t.join()
     assert out["a"] == pytest.approx(50.0)  # a brand-new thread still sees the real delta
+
+
+@pytest.mark.parametrize("device,setup,expected", [
+    ("/dev/mmcblk0p2", {"mmcblk0/device/type": "SD"}, "SD"),
+    ("/dev/mmcblk0p2", {"mmcblk0/device/type": "MMC"}, "eMMC"),
+    ("/dev/nvme0n1p2", {}, "NVMe"),
+    ("/dev/sda2", {"sda/link": "../devices/platform/usb1/1-1/host0/block/sda"}, "USB"),
+    ("/dev/sda2", {"sda/link": "../devices/platform/ahci/ata1/host0/block/sda"}, "SATA"),
+    ("/dev/root", {}, None),
+    (None, {}, None),
+])
+def test_storage_type(tmp_path, device, setup, expected):
+    from rpidash_agent.collect import storage_type
+    blk = tmp_path / "sys/block"
+    for rel, value in setup.items():
+        if rel.endswith("/link"):
+            name = rel.split("/")[0]
+            target = tmp_path / "sys" / value.replace("../", "")
+            target.mkdir(parents=True)
+            blk.mkdir(parents=True, exist_ok=True)
+            (blk / name).symlink_to(target)
+        else:
+            f = blk / rel
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(value + "\n")
+    assert storage_type(device, root=tmp_path) == expected
+
+
+def test_spec_has_storage_type():
+    assert "storage" in read_spec()

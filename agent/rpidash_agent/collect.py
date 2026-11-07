@@ -124,6 +124,27 @@ def _interfaces() -> list[dict]:
     return out
 
 
+def storage_type(device: str | None, root: Path = ROOT) -> str | None:
+    """What the root filesystem lives on: "SD", "eMMC", "NVMe", "USB" or "SATA" (None if unknown)."""
+    if not device:
+        return None
+    name = Path(device).name                                   # mmcblk0p2, nvme0n1p2, sda2
+    m = re.match(r"^(mmcblk\d+|nvme\d+n\d+|sd[a-z]+)", name)
+    if not m:
+        return None
+    disk = m.group(1)
+    if disk.startswith("nvme"):
+        return "NVMe"
+    if disk.startswith("mmcblk"):  # SD cards and eMMC both show up as mmcblk; the kernel knows which
+        kind = _read(root / "sys/block" / disk / "device/type")
+        return {"SD": "SD", "MMC": "eMMC"}.get(kind or "", "SD/eMMC")
+    try:
+        path = str((root / "sys/block" / disk).resolve())
+    except OSError:
+        return None
+    return "USB" if "/usb" in path else "SATA"
+
+
 def read_spec(root: Path = ROOT) -> dict:
     root_part = next((p for p in psutil.disk_partitions(all=False) if p.mountpoint == "/"), None)
     return {
@@ -133,6 +154,7 @@ def read_spec(root: Path = ROOT) -> dict:
         "cores": psutil.cpu_count() or 1,
         "ram_total": psutil.virtual_memory().total,
         "root_device": root_part.device if root_part else None,
+        "storage": storage_type(root_part.device if root_part else None, root),
         "root_size": psutil.disk_usage("/").total,
         "os": _os_name(root),
         "kernel": platform.release(),
