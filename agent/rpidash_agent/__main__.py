@@ -3,15 +3,19 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import sys
 import threading
 import time
 from pathlib import Path
 
+from .bench import BenchJobs, Benchmarks
 from .collect import Collector
 from .config import load_config
 from .history import History
 from .server import make_server
 from .services import Services
+from .stress import Stress
 
 log = logging.getLogger("rpidash_agent")
 
@@ -37,7 +41,9 @@ def main(argv: list[str] | None = None) -> None:
     services = Services(cfg.services_allowlist, user=cfg.service_user)
     stop = threading.Event()
     threading.Thread(target=_sampler, args=(Collector(), history, cfg.interval, stop), daemon=True).start()
-    srv = make_server(cfg, history, services)
+    jobs = BenchJobs(Benchmarks(binary=cfg.bench_binary, state_dir=cfg.state_dir))
+    stress = Stress(binary=str(cfg.bench_binary), python=sys.executable, cores=os.cpu_count() or 1)
+    srv = make_server(cfg, history, services, jobs=jobs, stress=stress)
     log.info("rpidash-agent listening on :%d", cfg.port)
     try:
         srv.serve_forever()

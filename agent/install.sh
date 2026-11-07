@@ -30,6 +30,16 @@ rm -rf "$SRC/build" "$SRC"/*.egg-info
 "$PREFIX/venv/bin/pip" install --quiet --upgrade "$SRC"
 rm -rf "$SRC/build" "$SRC"/*.egg-info
 
+# Build the CPU benchmark with the same flags on every Pi (see rpibench/rpibench.c).
+mkdir -p "$PREFIX/bin"
+if command -v cc >/dev/null; then
+  march=""; [[ $(uname -m) == aarch64 ]] && march="-march=armv8-a"
+  cc -O2 $march -pthread -o "$PREFIX/bin/rpibench" "$SRC/rpibench/rpibench.c" -lm
+  cc --version | head -1 > "$PREFIX/bin/rpibench.compiler"
+else
+  echo "no C compiler: the CPU benchmark and CPU stress will be unavailable" >&2
+fi
+
 TOKEN_FILE="${RPIDASH_TOKEN_FILE:-$SRC/token}"
 if [[ ! -f $CONF ]]; then
   if [[ ! -f $TOKEN_FILE ]]; then

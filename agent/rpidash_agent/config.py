@@ -13,6 +13,8 @@ class AgentConfig:
     interval: float = 10.0
     services_allowlist: list[str] = field(default_factory=list)
     service_user: str = "yfrl"
+    bench_binary: Path = Path("/opt/rpidash-agent/bin/rpibench")  # built by install.sh
+    state_dir: Path = Path("/var/lib/rpidash-agent")  # systemd StateDirectory (disk benchmark)
 
 
 def load_config(path: Path) -> AgentConfig:
@@ -27,4 +29,6 @@ def load_config(path: Path) -> AgentConfig:
         interval=float(data.get("interval", 10.0)),
         services_allowlist=[str(s) for s in data.get("services_allowlist", [])],
         service_user=str(data.get("service_user", "yfrl")),
+        bench_binary=Path(data.get("bench_binary", "/opt/rpidash-agent/bin/rpibench")),
+        state_dir=Path(data.get("state_dir", "/var/lib/rpidash-agent")),
     )

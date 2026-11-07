@@ -33,3 +33,10 @@ def test_missing_token_raises(tmp_path):
 def test_empty_token_raises(tmp_path):
     with pytest.raises(ValueError):
         load_config(write(tmp_path, 'token=""\n'))
+
+
+def test_bench_paths_default(tmp_path):
+    from pathlib import Path
+    cfg = load_config(write(tmp_path, 'token="t"\n'))
+    assert cfg.bench_binary == Path("/opt/rpidash-agent/bin/rpibench")
+    assert cfg.state_dir == Path("/var/lib/rpidash-agent")

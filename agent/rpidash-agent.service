@@ -12,6 +12,7 @@ Nice=10
 MemoryMax=80M
 # Hardening: the agent only reads system state and asks systemd (over D-Bus) to act.
 ProtectSystem=strict
+StateDirectory=rpidash-agent
 ProtectHome=read-only
 PrivateTmp=yes
 NoNewPrivileges=yes
