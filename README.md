@@ -29,7 +29,7 @@ large package-index files from Debian and Ubuntu mirrors in rotation (mirrors ex
 big downloads; a public speed-test site rate-limits this kind of traffic). Every load stops by itself
 after the time you choose (1 to 30 minutes), or when you press Stop.
 
-![Stress tab: controls to load the ticked Pis, and live charts of CPU, RAM, temperature and network with one line per Pi](docs/screenshots/stress.png)
+![Stress tab during a 2-minute CPU, RAM and network load on all five Pis: live charts of CPU, RAM, temperature and network download, one line per Pi](docs/screenshots/stress.png)
 
 ```
 Browser ──▶ dashboard (desktop or a Pi) ──HTTP :8765 + token──▶ agent on each Pi
