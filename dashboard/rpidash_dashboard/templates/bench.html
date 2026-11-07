@@ -14,7 +14,6 @@
       <div class="ticks">
         <label><input type="checkbox" name="test" value="cpu" checked> CPU <span class="muted">about 25 s</span></label>
         <label><input type="checkbox" name="test" value="disk" checked> Disk <span class="muted">about 30 s, writes 256 MB</span></label>
-        <label><input type="checkbox" name="test" value="net" checked> Internet <span class="muted">about 20 s, via speed.cloudflare.com</span></label>
       </div>
     </fieldset>
     <button type="submit" id="bench-run">Run benchmarks</button>
@@ -32,15 +31,13 @@
   <div class="table-scroll">
     <table id="bench-table" class="bench">
       <thead>
-        <tr class="groups"><th></th><th colspan="4">CPU</th><th colspan="4">Disk</th><th colspan="3">Internet</th></tr>
+        <tr class="groups"><th></th><th colspan="4">CPU</th><th colspan="4">Disk</th></tr>
         <tr>
           <th>Pi</th>
           <th class="num">INT 1 core<br><span class="unit">Mops/s</span></th><th class="num">INT all cores<br><span class="unit">Mops/s</span></th>
           <th class="num">FP 1 core<br><span class="unit">MFLOPS</span></th><th class="num">FP all cores<br><span class="unit">MFLOPS</span></th>
           <th class="num">Seq write<br><span class="unit">MB/s</span></th><th class="num">Seq read<br><span class="unit">MB/s</span></th>
           <th class="num">4K read<br><span class="unit">IOPS</span></th><th class="num">4K write<br><span class="unit">IOPS</span></th>
-          <th class="num">Down<br><span class="unit">Mbit/s</span></th><th class="num">Up<br><span class="unit">Mbit/s</span></th>
-          <th class="num">Latency<br><span class="unit">ms</span></th>
         </tr>
       </thead>
       <tbody></tbody>

@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from rpidash_agent.bench import BenchError, BenchJobs, Benchmarks, net_bench
+from rpidash_agent.bench import BenchError, BenchJobs, Benchmarks
 
 
 class FakeRun:
@@ -59,25 +59,6 @@ def test_disk_bench_needs_free_space(tmp_path, monkeypatch):
         make(tmp_path).disk(size_mb=256)
 
 
-class FakeNet:
-    def latency_ms(self):
-        return [12.0, 10.0, 11.0, 30.0, 10.5]
-
-    def download(self, nbytes):
-        return nbytes / 12_500_000  # 100 Mbit/s
-
-    def upload(self, nbytes):
-        return nbytes / 2_500_000  # 20 Mbit/s
-
-
-def test_net_bench_computes_mbps_and_median_latency():
-    r = net_bench(FakeNet(), seconds=1.0)
-    assert r["latency_ms"] == 11.0
-    assert r["download_Mbps"] == pytest.approx(100.0)
-    assert r["upload_Mbps"] == pytest.approx(20.0)
-    assert r["server"] == "speed.cloudflare.com"
-
-
 class SlowBench:
     def __init__(self, gate=None, fail=()):
         self.gate, self.fail = gate, fail
@@ -95,8 +76,6 @@ class SlowBench:
     def disk(self):
         return self._go("disk")
 
-    def net(self):
-        return self._go("net")
 
 
 def wait_done(jobs):
@@ -109,10 +88,10 @@ def wait_done(jobs):
 
 def test_job_runs_tests_and_reports_results():
     jobs = BenchJobs(SlowBench())
-    job = jobs.start(["cpu", "net"])
+    job = jobs.start(["cpu", "disk"])
     st = wait_done(jobs)
     assert st["state"] == "done" and st["job"] == job
-    assert st["results"] == {"cpu": {"value": "cpu"}, "net": {"value": "net"}}
+    assert st["results"] == {"cpu": {"value": "cpu"}, "disk": {"value": "disk"}}
     assert st["errors"] == {} and st["finished"] >= st["started"]
 
 
@@ -146,110 +125,9 @@ def test_idle_status():
     assert BenchJobs(SlowBench()).status()["state"] == "idle"
 
 
-class RecordingNet(FakeNet):
-    def __init__(self):
-        self.sizes = []
-
-    def download(self, nbytes):
-        self.sizes.append(nbytes)
-        return nbytes / 125_000_000  # 1 Gbit/s, so chunk sizes grow to the cap
-
-    def upload(self, nbytes):
-        self.sizes.append(nbytes)
-        return nbytes / 125_000_000
-
-
-def test_net_bench_never_asks_for_more_than_cloudflare_allows():
-    from rpidash_agent.bench import NET_MAX_BYTES
-    net = RecordingNet()
-    net_bench(net, seconds=2.0)
-    assert max(net.sizes) == NET_MAX_BYTES
-    assert NET_MAX_BYTES <= 25_000_000  # Cloudflare answers 403 above ~50 MB
-
-
-def test_cloudflare_error_status_raises(monkeypatch):
-    import http.client
-    from rpidash_agent.bench import CloudflareNet
-
-    class Resp:
-        status = 403
-        def read(self, *a):
-            return b""
-
-    class Conn:
-        def __init__(self, *a, **k): pass
-        def request(self, *a, **k): pass
-        def getresponse(self): return Resp()
-        def close(self): pass
-
-    monkeypatch.setattr(http.client, "HTTPSConnection", Conn)
-    for op in (lambda n: n.download(1000), lambda n: n.upload(1000), lambda n: n.latency_ms()):
-        with pytest.raises(BenchError, match="403"):
-            op(CloudflareNet())
-
-
-class PickyNet(RecordingNet):
-    """Refuses some sizes, like Cloudflare does."""
-    def __init__(self, refused):
-        super().__init__()
-        self.refused = refused
-
-    def download(self, nbytes):
-        if nbytes in self.refused:
-            raise BenchError("speed.cloudflare.com answered HTTP 403")
-        return super().download(nbytes)
-
-
-def test_net_bench_uses_known_good_sizes_and_skips_refused_ones():
-    from rpidash_agent.bench import NET_SIZES
-    net = PickyNet(refused={NET_SIZES[-1]})
-    r = net_bench(net, seconds=1.0)
-    assert r["download_Mbps"] == pytest.approx(1000.0)
-    assert set(net.sizes) <= set(NET_SIZES)
-
-
-def test_net_bench_fails_when_every_size_is_refused():
-    from rpidash_agent.bench import NET_SIZES
-    with pytest.raises(BenchError):
-        net_bench(PickyNet(refused=set(NET_SIZES)), seconds=1.0)
-
-
-def test_rate_limit_or_timeout_is_not_treated_as_refused_size():
-    class Limited(RecordingNet):
-        def download(self, n):
-            raise BenchError("speed.cloudflare.com is rate-limiting this network (HTTP 429)")
-    with pytest.raises(BenchError, match="429"):
-        net_bench(Limited(), seconds=1.0)
-
-
-def test_network_errors_become_bench_errors(monkeypatch):
-    import http.client
-    from rpidash_agent.bench import CloudflareNet
-
-    class Conn:
-        def __init__(self, *a, **k): pass
-        def request(self, *a, **k): raise TimeoutError("The read operation timed out")
-        def close(self): pass
-
-    monkeypatch.setattr(http.client, "HTTPSConnection", Conn)
-    with pytest.raises(BenchError, match="network error"):
-        CloudflareNet().download(1000)
-
-
-def test_429_message_says_rate_limited(monkeypatch):
-    import http.client
-    from rpidash_agent.bench import CloudflareNet
-
-    class Resp:
-        status = 429
-        def read(self, *a): return b""
-
-    class Conn:
-        def __init__(self, *a, **k): pass
-        def request(self, *a, **k): pass
-        def getresponse(self): return Resp()
-        def close(self): pass
-
-    monkeypatch.setattr(http.client, "HTTPSConnection", Conn)
-    with pytest.raises(BenchError, match="rate-limiting"):
-        CloudflareNet().download(1000)
+def test_internet_benchmark_removed():
+    import rpidash_agent.bench as bench
+    assert bench.TESTS == ("cpu", "disk")
+    with pytest.raises(ValueError):
+        BenchJobs(SlowBench()).start(["net"])
+    assert not hasattr(bench, "CloudflareNet") and not hasattr(Benchmarks, "net")

@@ -409,10 +409,9 @@ function detail(id, spec) {
 const BENCH_COLS = [
   ["cpu", "int_1", 0], ["cpu", "int_all", 0], ["cpu", "fp_1", 0], ["cpu", "fp_all", 0],
   ["disk", "seq_write_MBps", 1], ["disk", "seq_read_MBps", 1], ["disk", "rand4k_read_iops", 0], ["disk", "rand4k_write_iops", 0],
-  ["net", "download_Mbps", 1], ["net", "upload_Mbps", 1], ["net", "latency_ms", 1],
 ];
-const LOWER_IS_BETTER = new Set(["latency_ms"]);
-const TEST_NAME = { cpu: "CPU", disk: "disk", net: "internet" };
+const LOWER_IS_BETTER = new Set(); // every column is higher-is-better
+const TEST_NAME = { cpu: "CPU", disk: "disk" };
 
 function when(iso) {
   return iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
@@ -485,7 +484,7 @@ function bench() {
       try { localStorage.setItem("benchView", benchView); } catch { /* fine */ }
       document.querySelectorAll(".results-head .seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
       $("#bench-note").textContent = benchView === "relative"
-        ? "Each column is divided by its lowest-performing Pi (1.0×); for latency, lower latency gives a higher ×. Hover over a number for the measured value."
+        ? "Each column is divided by its lowest-performing Pi (1.0×). Hover over a number for the measured value."
         : "The best result in each column is in bold. Hover over a number to see when it was measured.";
       if (lastTable) renderBenchTable(lastTable.rows, lastTable.running);
     });

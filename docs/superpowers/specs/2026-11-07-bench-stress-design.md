@@ -3,7 +3,7 @@
 Date: 2026-11-07. Status: approved in chat by owner.
 
 ## Intent
-Compare the Pis on CPU, disk and internet speed, and load them on demand to watch the
+Compare the Pis on CPU and disk speed, and load them on demand to watch the
 dashboard react. Results are kept so the comparison table can be revisited without re-running.
 
 ## Owner decisions
@@ -14,8 +14,9 @@ dashboard react. Results are kept so the comparison table can be revisited witho
   core and all cores. No AI benchmark.
 - Disk: same method as the owner's `~/disk_bench.py` (O_DIRECT, 256 MB file, seq write/read
   MB/s, 4K random read/write IOPS for 10 s each).
-- Network benchmark: a **public speed test** (Cloudflare speed.cloudflare.com: download,
-  upload, latency).
+- ~~Network benchmark via Cloudflare's speed test~~ — **removed 2026-11-07 by the owner**
+  ("we already have one network test": network stress). Cloudflare rate-limited the home
+  network (HTTP 403/429) after the first version of network stress looped on it.
 - Stress: CPU, RAM and network loads that can be **started and stopped**. **No Pi-to-Pi
   traffic.**
 

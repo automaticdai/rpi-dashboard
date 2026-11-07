@@ -49,7 +49,7 @@ class StressRequest(BaseModel):
     minutes: int = 5
 
 
-BENCH_TESTS = ("cpu", "disk", "net")
+BENCH_TESTS = ("cpu", "disk")
 
 
 def _now_iso() -> str:
@@ -256,8 +256,11 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             save_bench()
 
         await asyncio.gather(*(check(i, t) for i, t in list(state["round"].items())))
+        def known(results: dict) -> dict:  # hide results of tests that no longer exist
+            return {t: r for t, r in results.items() if t in BENCH_TESTS}
+
         rows = [{"id": p.id, "hostname": p.hostname, "model": (p.spec or {}).get("model"),
-                 "results": bench.results(p.id)} for p in registry.all()]
+                 "results": known(bench.results(p.id))} for p in registry.all()]
         return {"rows": rows, "running": running}
 
     @app.get("/api/now")

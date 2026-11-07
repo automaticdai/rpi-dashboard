@@ -17,16 +17,18 @@ you can come back to it later, and a round only replaces the numbers it measured
   (Mops/s) and floating point (MFLOPS), on one core and on all cores.
 - **Disk:** sequential write/read (MB/s) and 4K random read/write (IOPS) with `O_DIRECT`,
   using a 256 MB test file that is deleted afterwards.
-- **Internet:** download, upload and latency against speed.cloudflare.com.
 
-![Benchmarks page: a table of CPU, disk and internet results for five Pis, with the best result in each column in bold](docs/screenshots/benchmarks.png)
+Switch the table between measured values and **× slowest Pi**, where each column is divided
+by its lowest-performing Pi (1.0×).
+
+![Benchmarks page: a table of CPU and disk results for five Pis, with the best result in each column in bold](docs/screenshots/benchmarks.png)
 
 ### Stress
 
 Start a CPU, RAM and/or network load on the ticked Pis and watch them live: CPU, RAM,
 temperature and network, read every 2 seconds, one line per Pi. The network load downloads
 large package-index files from Debian and Ubuntu mirrors in rotation (mirrors exist to serve
-big downloads; a public speed-test site rate-limits this kind of traffic). Every load stops by itself
+big downloads). Every load stops by itself
 after the time you choose (1 to 30 minutes), or when you press Stop.
 
 ![Stress tab during a 2-minute CPU, RAM and network load on all five Pis: live charts of CPU, RAM, temperature and network download, one line per Pi](docs/screenshots/stress.png)

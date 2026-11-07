@@ -23,13 +23,13 @@ def test_new_round_keeps_other_tests(tmp_path):
 
 def test_error_recorded_without_losing_last_good_result(tmp_path):
     s = BenchStore(tmp_path / "bench.json")
-    s.record("A", "net", {"download_Mbps": 50.0}, "t1")
-    s.record_error("A", "net", "timed out", "t2")
-    r = s.results("A")["net"]
-    assert r["download_Mbps"] == 50.0 and r["measured"] == "t1"
-    assert r["error"] == "timed out" and r["error_at"] == "t2"
-    s.record("A", "net", {"download_Mbps": 60.0}, "t3")
-    assert "error" not in s.results("A")["net"]
+    s.record("A", "disk", {"seq_read_MBps": 50.0}, "t1")
+    s.record_error("A", "disk", "not enough free space", "t2")
+    r = s.results("A")["disk"]
+    assert r["seq_read_MBps"] == 50.0 and r["measured"] == "t1"
+    assert r["error"] == "not enough free space" and r["error_at"] == "t2"
+    s.record("A", "disk", {"seq_read_MBps": 60.0}, "t3")
+    assert "error" not in s.results("A")["disk"]
 
 
 def test_missing_or_corrupt_file(tmp_path):

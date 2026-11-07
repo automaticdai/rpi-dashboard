@@ -184,15 +184,15 @@ def test_bench_round_collects_results(make_client):
     c, reg, fake = make_client({"10.0.0.1": "ok", "10.0.0.2": "ok"},
                                pis=[make_pi("A", "10.0.0.1"), make_pi("B", "10.0.0.2")])
     with c:
-        r = c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu", "net"]})
+        r = c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu", "disk"]})
         assert r.status_code == 200 and r.json() == {"A": {"started": True}}
-        assert fake.posted[-1] == ("/bench", {"tests": ["cpu", "net"]})
+        assert fake.posted[-1] == ("/bench", {"tests": ["cpu", "disk"]})
         fake.bench_status["10.0.0.1"] = {"state": "done", "job": 1, "results": {"cpu": {"int_1": 760.0}},
-                                         "errors": {"net": "timed out"}, "current": None}
+                                         "errors": {"disk": "not enough free space"}, "current": None}
         table = c.get("/api/bench").json()
     rows = {row["id"]: row for row in table["rows"]}
     assert rows["A"]["results"]["cpu"]["int_1"] == 760.0 and rows["A"]["results"]["cpu"]["measured"]
-    assert rows["A"]["results"]["net"]["error"] == "timed out"
+    assert rows["A"]["results"]["disk"]["error"] == "not enough free space"
     assert rows["B"]["results"] == {} and table["running"] == {}
     store = json.loads((reg.path.parent / "bench.json").read_text())
     assert store["pis"]["A"]["cpu"]["int_1"] == 760.0
@@ -251,3 +251,12 @@ def test_now_requires_ids(make_client):
     c, _, _ = make_client({})
     with c:
         assert c.get("/api/now").status_code == 422
+
+
+def test_internet_benchmark_removed_and_old_results_hidden(make_client, tmp_path):
+    (tmp_path / "bench.json").write_text(json.dumps({"pis": {"A": {
+        "cpu": {"int_1": 1.0, "measured": "t"}, "net": {"download_Mbps": 168.2, "measured": "t"}}}}))
+    c, _, _ = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        assert c.post("/api/bench", json={"ids": ["A"], "tests": ["net"]}).status_code == 400
+        assert c.get("/api/bench").json()["rows"][0]["results"] == {"cpu": {"int_1": 1.0, "measured": "t"}}
