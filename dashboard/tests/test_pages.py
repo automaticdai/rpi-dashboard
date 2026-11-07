@@ -40,3 +40,10 @@ def test_stress_tab(make_client):
         assert r.status_code == 200 and 'id="stress-form"' in r.text and 'id="live-charts"' in r.text
         assert 'href="/stress"' in c.get("/").text
         assert 'id="stress-form"' not in c.get("/bench").text
+
+
+def test_overview_has_cards_list_switch(make_client):
+    c, _, _ = make_client({})
+    with c:
+        r = c.get("/")
+    assert 'data-layout="cards"' in r.text and 'data-layout="list"' in r.text and 'id="list-head"' in r.text

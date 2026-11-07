@@ -10,6 +10,14 @@
 {% endblock %}
 {% block main %}
 <section id="scan-results" hidden></section>
+<div class="view-bar">
+  <div class="seg" role="group" aria-label="Show Pis as">
+    <button type="button" data-layout="cards" aria-pressed="true">Cards</button><button type="button" data-layout="list" aria-pressed="false">List</button>
+  </div>
+</div>
+<div id="list-head" class="list-head" hidden aria-hidden="true">
+  <span></span><span>Pi</span><span class="num">Temp</span><span>CPU</span><span>RAM</span><span>Disk</span><span>Network</span><span>Uptime</span><span>Status</span><span></span>
+</div>
 <section id="pis" class="grid" aria-live="polite"></section>
 <p id="empty" class="empty" hidden>No Pis yet. Add one by its IP address, or scan your network to find every Pi running the agent.</p>
 {% endblock %}

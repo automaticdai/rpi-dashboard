@@ -144,6 +144,59 @@ function card(p) {
   return el;
 }
 
+// ---------- list view ----------
+let layout = "cards";
+try { layout = localStorage.getItem("overviewLayout") === "list" ? "list" : "cards"; } catch { /* private mode */ }
+
+function usage(label, v, amount) {
+  return `<span class="cell usage"><span class="lbl">${label}</span>` +
+    `<span class="bar"><i class="${level(v)}" style="width:${v == null ? 0 : Math.min(100, v)}%"></i></span>` +
+    `<span class="val">${amount ? `<span class="of">${amount}</span> ` : ""}${pct(v)}</span></span>`;
+}
+
+function listRow(p) {
+  const s = p.live && p.live.sample;
+  const spec = p.spec || {};
+  const el = document.createElement("article");
+  el.className = `card row ${p.status}`;
+  el.dataset.id = p.id;
+  el.draggable = true;
+  const h = s && heat(s.temp_c);
+  if (h) el.style.setProperty("--heat", h);
+  const chips = p.warnings.map((w) => `<span class="chip ${w === "disk" || w === "mem" ? "warn" : "bad"}">${WARN_TEXT[w] || esc(w)}</span>`);
+  const stressing = p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => k.toUpperCase()) : [];
+  if (stressing.length) chips.unshift(`<span class="chip warn">Stress: ${stressing.join(", ")}</span>`);
+  const status = p.status === "online" ? (chips.length ? chips.join("") : `<span class="muted">OK</span>`)
+    : `<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span> <span class="muted">seen ${ago(p.last_seen)}</span>`;
+  el.innerHTML = `
+    <button class="grip" aria-label="Move ${esc(p.hostname)} (drag, or use arrow keys)" title="Drag to reorder">⠿</button>
+    <span class="cell name"><span class="dot ${p.status}"></span><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a>
+      <span class="sub">${esc(spec.model || p.host)}<br>${esc(hardwareLine(spec, s))}</span></span>
+    <span class="cell temp num">${s ? temp(s.temp_c) : "–"}</span>
+    ${s ? usage("CPU", s.cpu_pct, "") : `<span class="cell"></span>`}
+    ${s ? usage("RAM", memPct(s), usedOf(s.mem_used, ramBytes(spec.ram_total || s.mem_total))) : `<span class="cell"></span>`}
+    ${s ? usage("Disk", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size)) : `<span class="cell"></span>`}
+    <span class="cell net">${s ? `↓ ${rate(s.net_rx_bps)}<br>↑ ${rate(s.net_tx_bps)}` : ""}</span>
+    <span class="cell uptime">${s ? duration(p.live.uptime_s) : ""}</span>
+    <span class="cell status">${status}</span>
+    <button class="small remove" title="Remove from this dashboard">Remove</button>`;
+  el.querySelector(".remove").addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (!confirm(`Remove ${p.hostname} from the dashboard? The Pi keeps running its agent.`)) return;
+    await api("DELETE", `/api/pis/${encodeURIComponent(p.id)}`);
+    toast(`Removed ${p.hostname}`);
+    refreshOverview();
+  });
+  return el;
+}
+
+function applyLayout() {
+  $("#pis").classList.toggle("list", layout === "list");
+  $("#pis").classList.toggle("grid", layout === "cards");
+  $("#list-head").hidden = layout !== "list";
+  document.querySelectorAll(".view-bar .seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.layout === layout)));
+}
+
 // ---------- drag to reorder ----------
 let dragging = null;
 
@@ -209,7 +262,7 @@ async function refreshOverview() {
   const grid = $("#pis");
   const focusedGrip = document.activeElement && document.activeElement.closest(".grip") &&
     document.activeElement.closest(".card").dataset.id;
-  grid.replaceChildren(...pis.map(card));
+  grid.replaceChildren(...pis.map(layout === "list" ? listRow : card));
   if (focusedGrip) grid.querySelector(`.card[data-id="${CSS.escape(focusedGrip)}"] .grip`)?.focus();
   $("#empty").hidden = pis.length > 0;
   const online = pis.filter((p) => p.status === "online").length;
@@ -253,6 +306,13 @@ function overview() {
     btn.disabled = false; btn.textContent = "Scan network";
   });
   setupReorder();
+  applyLayout();
+  document.querySelectorAll(".view-bar .seg button").forEach((b) => b.addEventListener("click", () => {
+    layout = b.dataset.layout;
+    try { localStorage.setItem("overviewLayout", layout); } catch { /* fine */ }
+    applyLayout();
+    refreshOverview();
+  }));
   refreshOverview();
   setInterval(refreshOverview, REFRESH_MS);
 }
