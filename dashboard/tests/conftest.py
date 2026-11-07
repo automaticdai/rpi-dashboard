@@ -31,6 +31,7 @@ class FakeAgents:
         self.posted = []  # (path, json body) of POSTs
         self.bench_status = {}  # host -> /bench status
         self.bench_busy = False
+        self.next_job = 1
 
     def agent_id(self, host):
         return self.ids.get(host, "ID-" + host)
@@ -53,11 +54,13 @@ class FakeAgents:
             if p == "/bench":
                 if self.bench_busy:
                     return httpx.Response(409, json={"error": "a benchmark is already running on this Pi"})
-                return httpx.Response(202, json={"job": 1})
+                job, self.next_job = self.next_job, self.next_job + 1
+                return httpx.Response(202, json={"job": job})
             if p.startswith("/stress"):
                 return httpx.Response(200, json={"cpu": True, "ram": False, "net": False})
         if p == "/bench":
-            return httpx.Response(200, json=self.bench_status.get(req.url.host, {"state": "idle"}))
+            st = self.bench_status.get(req.url.host, {"state": "idle"})
+            return httpx.Response(200, json={"id": self.agent_id(req.url.host), **st})
         if p == "/now":
             return httpx.Response(200, json={"id": self.agent_id(req.url.host), "sample": SAMPLE})
         if p == "/health":

@@ -260,3 +260,51 @@ def test_internet_benchmark_removed_and_old_results_hidden(make_client, tmp_path
     with c:
         assert c.post("/api/bench", json={"ids": ["A"], "tests": ["net"]}).status_code == 400
         assert c.get("/api/bench").json()["rows"][0]["results"] == {"cpu": {"int_1": 1.0, "measured": "t"}}
+
+
+def done(job, results, errors=None, finished=1_794_000_000.0):
+    return {"state": "done", "job": job, "results": results, "errors": errors or {}, "current": None,
+            "finished": finished}
+
+
+def test_bench_round_survives_dashboard_restart(make_client):
+    pis = [make_pi("A", "10.0.0.1")]
+    c, _, _ = make_client({"10.0.0.1": "ok"}, pis=pis)
+    with c:
+        assert c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu"]}).json() == {"A": {"started": True}}
+    # dashboard restarts (new app, same files); the agent finished meanwhile
+    c2, _, fake2 = make_client({"10.0.0.1": "ok"}, pis=pis)
+    fake2.bench_status["10.0.0.1"] = done(1, {"cpu": {"int_1": 760.0}})
+    with c2:
+        row = c2.get("/api/bench").json()["rows"][0]
+    assert row["results"]["cpu"]["int_1"] == 760.0
+    assert row["results"]["cpu"]["measured"].startswith("2026-11-0")  # the agent's finish time
+
+
+def test_old_job_result_does_not_close_newer_round(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu"]})       # job 1
+        fake.bench_status["10.0.0.1"] = done(1, {"cpu": {"int_1": 1.0}})
+        c.get("/api/bench")                                                 # job 1 collected
+        c.post("/api/bench", json={"ids": ["A"], "tests": ["disk"]})      # job 2 started
+        # a slow poll still sees job 1 "done": it must not end round 2
+        assert c.get("/api/bench").json()["running"] == {"A": {"current": None, "tests": ["disk"], "waiting": True}}
+        fake.bench_status["10.0.0.1"] = done(2, {"disk": {"seq_read_MBps": 20.0}})
+        row = c.get("/api/bench").json()["rows"][0]
+    assert row["results"]["disk"]["seq_read_MBps"] == 20.0
+
+
+def test_result_from_another_pi_or_malformed_is_not_recorded(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu", "disk"]})
+        fake.ids["10.0.0.1"] = "someone-else"
+        fake.bench_status["10.0.0.1"] = done(1, {"cpu": {"int_1": 9.0}})
+        assert c.get("/api/bench").json()["rows"][0]["results"] == {}
+        fake.ids["10.0.0.1"] = "A"
+        fake.bench_status["10.0.0.1"] = done(1, {"cpu": "garbage", "disk": {"seq_read_MBps": 5.0}})
+        r = c.get("/api/bench")
+    assert r.status_code == 200
+    assert "int_1" not in r.json()["rows"][0]["results"].get("cpu", {})
+    assert r.json()["rows"][0]["results"]["disk"]["seq_read_MBps"] == 5.0

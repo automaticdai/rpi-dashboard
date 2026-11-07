@@ -29,7 +29,7 @@ hosts=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage 0 ;;
-    --services) services="${2-}"; shift 2 ;;
+    --services) [[ $# -ge 2 ]] || { echo "--services needs a value" >&2; exit 2; }; services="$2"; shift 2 ;;
     --rotate-token) rotate=1; shift ;;
     -*) echo "unknown option: $1" >&2; usage 2 ;;
     *) hosts+=("$1"); shift ;;
@@ -53,27 +53,46 @@ if [[ $rotate == 1 && ! -f $NEW_TOKEN ]]; then
   echo "new token created: $NEW_TOKEN"
 fi
 
+SSH_OPTS=(-o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3)
+RETRY_DELAY="${RPIDASH_RETRY_DELAY:-2}"
+# Host names may come from pis.json (reported by the Pis themselves), so only plain names pass.
+valid_host() { [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
+
+# Send a token file over ssh into a private file (never on a command line, never world-readable).
+send_token() { ssh "${SSH_OPTS[@]}" -- "$1" 'umask 077; cat > ~/rpidash-agent/token' < "$2"; }
+
 declare -A result
 failed=0
 for h in "${hosts[@]}"; do
   echo "=== $h"
   fail() { result[$h]="FAILED  $1"; failed=1; }
-  if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$h" true; then fail "unreachable"; continue; fi
+  if ! valid_host "$h"; then fail "invalid host name (letters, digits, . _ - only)"; continue; fi
+  if ! ssh "${SSH_OPTS[@]}" -o BatchMode=yes -- "$h" true; then fail "unreachable"; continue; fi
   if ! rsync -a --delete --exclude tests --exclude build --exclude '*.egg-info' --exclude __pycache__ \
-       "$REPO/agent/" "$h:~/rpidash-agent/"; then fail "copy failed"; continue; fi
+       -e "ssh ${SSH_OPTS[*]}" "$REPO/agent/" "$h:~/rpidash-agent/"; then fail "copy failed"; continue; fi
   rotate_env=""
   if [[ $rotate == 1 ]]; then
-    scp -p "$NEW_TOKEN" "$h:~/rpidash-agent/token" || { fail "could not send the new token"; continue; }
+    send_token "$h" "$NEW_TOKEN" || { fail "could not send the new token"; continue; }
     rotate_env="RPIDASH_ROTATE=1 "
-  elif ! ssh "$h" 'test -f /etc/rpidash-agent.toml'; then
-    echo "first install on $h: sending the token"
-    [[ -f $TOKEN_FILE ]] || { fail "first install needs $TOKEN_FILE"; continue; }
-    scp -p "$TOKEN_FILE" "$h:~/rpidash-agent/token" || { fail "could not send the token"; continue; }
+  else
+    ssh "${SSH_OPTS[@]}" -- "$h" 'test -f /etc/rpidash-agent.toml'
+    rc=$?
+    if [[ $rc == 255 ]]; then fail "connection lost"; continue; fi
+    if [[ $rc != 0 ]]; then
+      echo "first install on $h: sending the token"
+      [[ -f $TOKEN_FILE ]] || { fail "first install needs $TOKEN_FILE"; continue; }
+      send_token "$h" "$TOKEN_FILE" || { fail "could not send the token"; continue; }
+    fi
   fi
-  if ! ssh -t "$h" "cd ~/rpidash-agent && sudo ${rotate_env}RPIDASH_SERVICES='$services' ./install.sh"; then
+  if ! ssh "${SSH_OPTS[@]}" -t -- "$h" "cd ~/rpidash-agent && sudo ${rotate_env}RPIDASH_SERVICES='$services' ./install.sh"; then
+    ssh "${SSH_OPTS[@]}" -- "$h" 'rm -f ~/rpidash-agent/token' || true  # don't leave the token behind
     fail "install.sh failed"; continue
   fi
-  ver="$(ssh "$h" "python3 -c 'import json,urllib.request; print(json.load(urllib.request.urlopen(\"http://127.0.0.1:8765/health\", timeout=10))[\"version\"])'" 2>/dev/null)"
+  ver=""
+  for _ in 1 2 3 4 5 6; do  # the agent may take a few seconds to start
+    ver="$(ssh "${SSH_OPTS[@]}" -- "$h" "python3 -c 'import json,urllib.request; print(json.load(urllib.request.urlopen(\"http://127.0.0.1:8765/health\", timeout=10))[\"version\"])'" 2>/dev/null)" && [[ -n $ver ]] && break
+    sleep "$RETRY_DELAY"
+  done
   if [[ $ver == "$EXPECTED" ]]; then result[$h]="ok      $ver"; else fail "running ${ver:-nothing}, expected $EXPECTED"; fi
 done
 

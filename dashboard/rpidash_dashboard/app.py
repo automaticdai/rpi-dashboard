@@ -63,7 +63,7 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         registry.load()
     agents = client or AgentClient(cfg.token, port=cfg.agent_port)
     rediscovery = Rediscovery(registry, agents, cfg.subnet)
-    state = {"last_save": 0.0, "status": {}, "round": {}}  # round: Pi id -> tests still running
+    state = {"last_save": 0.0, "status": {}}
     bench = BenchStore(cfg.registry_path.parent / "bench.json")
     bench.load()
     log = logging.getLogger("rpidash_dashboard")
@@ -192,7 +192,7 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             raise HTTPException(404, "unknown Pi")
         safe_save()
         bench.forget(pi_id)
-        state["round"].pop(pi_id, None)
+        bench.round.pop(pi_id, None)
         return Response(status_code=204)
 
     @app.put("/api/order", status_code=204)
@@ -218,10 +218,11 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
                 return {"error": "unknown Pi"}
             try:
                 pi = await verified_pi(pi_id)
-                await agent_call(agents.bench_start(pi.host, tests, pi.port))
+                started = await agent_call(agents.bench_start(pi.host, tests, pi.port))
             except HTTPException as e:
                 return {"error": str(e.detail)}
-            state["round"][pi_id] = tests
+            bench.round[pi_id] = {"job": started.get("job"), "tests": tests}
+            save_bench()
             return {"started": True}
 
         ids = list(dict.fromkeys(body.ids))
@@ -231,32 +232,45 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     async def bench_table():
         running = {}
 
-        async def check(pi_id: str, tests: list[str]) -> None:
+        async def check(pi_id: str, entry: dict) -> None:
+            tests = entry["tests"]
             pi = registry.get(pi_id)
             if pi is None:
-                state["round"].pop(pi_id, None)
+                bench.round.pop(pi_id, None)
                 return
             try:
                 st = await asyncio.wait_for(agents.bench_status(pi.host, pi.port), call_timeout())
             except (AgentError, PermissionError, asyncio.TimeoutError):
                 running[pi_id] = {"current": None, "tests": tests, "unreachable": True}
                 return
-            now = _now_iso()
-            if st.get("state") == "running":
-                running[pi_id] = {"current": st.get("current"), "tests": st.get("tests")}
+            if st.get("id", pi.id) != pi.id:  # another Pi now answers at this address
+                running[pi_id] = {"current": None, "tests": tests, "unreachable": True}
                 return
-            if st.get("state") == "done":
+            ours = st.get("job") == entry.get("job")
+            if st.get("state") == "running" or (st.get("state") == "done" and not ours and st.get("job", 0) < (entry.get("job") or 0)):
+                # still running, or this answer is about an older job (a poll that raced a new start)
+                running[pi_id] = ({"current": st.get("current"), "tests": st.get("tests")} if ours
+                                  else {"current": None, "tests": tests, "waiting": True})
+                return
+            if bench.round.get(pi_id) != entry:
+                return  # a newer round started while we were asking; leave it alone
+            finished = st.get("finished")
+            at = (datetime.fromtimestamp(finished, timezone.utc).isoformat(timespec="seconds")
+                  if isinstance(finished, (int, float)) else _now_iso())
+            if st.get("state") == "done" and ours:
                 for t, res in (st.get("results") or {}).items():
-                    bench.record(pi_id, t, res, now)
+                    if t in tests:
+                        bench.record(pi_id, t, res, at)
                 for t, err in (st.get("errors") or {}).items():
-                    bench.record_error(pi_id, t, err, now)
-            else:  # idle: the agent restarted and lost the job
+                    if t in tests:
+                        bench.record_error(pi_id, t, str(err)[:300], at)
+            else:  # idle or a different job: the agent restarted and lost ours
                 for t in tests:
-                    bench.record_error(pi_id, t, "the agent restarted before the test finished", now)
-            state["round"].pop(pi_id, None)
+                    bench.record_error(pi_id, t, "the agent restarted before the test finished", _now_iso())
+            bench.round.pop(pi_id, None)
             save_bench()
 
-        await asyncio.gather(*(check(i, t) for i, t in list(state["round"].items())))
+        await asyncio.gather(*(check(i, dict(e)) for i, e in list(bench.round.items())))
         def known(results: dict) -> dict:  # hide results of tests that no longer exist
             return {t: r for t, r in results.items() if t in BENCH_TESTS}
 

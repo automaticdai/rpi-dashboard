@@ -124,7 +124,7 @@ function card(p) {
     body = `<div class="meta"><span>${esc(spec.os || "")}</span><span>last seen ${ago(p.last_seen)}</span></div>`;
   }
   const chips = p.warnings.map((w) => `<span class="chip ${WARN_LEVEL(w)}">${WARN_TEXT[w] || esc(w)}</span>`);
-  const stressing = p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => k.toUpperCase()) : [];
+  const stressing = p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => esc(k).toUpperCase()) : [];
   if (stressing.length) chips.unshift(`<span class="chip warn">Stress running: ${stressing.join(", ")}</span>`);
   if (p.status !== "online") chips.unshift(`<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span>`);
   el.innerHTML = `
@@ -169,7 +169,7 @@ function listRow(p) {
   const h = s && heat(s.temp_c);
   if (h) el.style.setProperty("--heat", h);
   const chips = p.warnings.map((w) => `<span class="chip ${WARN_LEVEL(w)}">${WARN_TEXT[w] || esc(w)}</span>`);
-  const stressing = p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => k.toUpperCase()) : [];
+  const stressing = p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => esc(k).toUpperCase()) : [];
   if (stressing.length) chips.unshift(`<span class="chip warn">Stress: ${stressing.join(", ")}</span>`);
   const status = p.status === "online" ? (chips.length ? chips.join("") : `<span class="muted">OK</span>`)
     : `<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span> <span class="muted">seen ${ago(p.last_seen)}</span>`;
@@ -226,7 +226,7 @@ const TABLE_COLS = [
   ["uptime", "Uptime", (p) => p.live && p.live.uptime_s, (p) => (p.live ? duration(p.live.uptime_s) : "–"), true],
   ["throttled", "Throttled", (p) => smp(p).throttled, (p) => {
     const t = smp(p).throttled;
-    return t == null ? "–" : t ? `<span class="chip bad">0x${t.toString(16)}</span>` : "No";
+    return typeof t !== "number" ? "–" : t ? `<span class="chip bad">0x${t.toString(16)}</span>` : "No";
   }, false],
   ["warnings", "Warnings", (p) => p.warnings.length, (p) => p.warnings.map((w) => WARN_TEXT[w] || esc(w)).join(", ") || "", false],
 ];
@@ -482,7 +482,7 @@ function renderLive(p) {
     ["RAM", `${bytes(s.mem_used)} of ${bytes(s.mem_total)}`], ["Swap", bytes(s.swap_used)], ["Disk", pct(s.disk_pct)],
     ["Network", `↓ ${rate(s.net_rx_bps)}  ↑ ${rate(s.net_tx_bps)}`], ["Uptime", duration(p.live.uptime_s)],
     ["Fan", s.fan_rpm == null ? "No sensor" : `${s.fan_rpm} rpm`],
-    ["Throttling", s.throttled == null ? "Unknown" : s.throttled ? `Yes (0x${s.throttled.toString(16)})` : "None"],
+    ["Throttling", typeof s.throttled !== "number" ? "Unknown" : s.throttled ? `Yes (0x${s.throttled.toString(16)})` : "None"],
   ] : [["Status", STATUS_TEXT[p.status]], ["Last seen", ago(p.last_seen)]];
   $("#live").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("") +
     (p.warnings.length ? `<dt>Warnings</dt><dd>${p.warnings.map((w) => WARN_TEXT[w] || esc(w)).join(", ")}</dd>` : "");
@@ -613,7 +613,7 @@ function tickList(box, pis, name, stressStatus) {
   const first = box.children.length === 0;
   box.innerHTML = pis.map((p) => {
     const on = first ? p.status === "online" : prev.has(p.id);
-    const st = stressStatus && p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => k) : [];
+    const st = stressStatus && p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => esc(k)) : [];
     const extra = p.status !== "online" ? ` <span class="muted">(${STATUS_TEXT[p.status].toLowerCase()})</span>`
       : st.length ? ` <span class="chip warn">stress: ${st.join(", ")}</span>` : "";
     return `<label><input type="checkbox" name="${name}" value="${esc(p.id)}" ${on ? "checked" : ""} ${p.status === "online" ? "" : "disabled"}> ${esc(p.hostname)}${extra}</label>`;

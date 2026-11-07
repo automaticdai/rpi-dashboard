@@ -14,9 +14,12 @@ class BenchStore:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self._pis: dict[str, dict] = {}
+        # Benchmark jobs started but not yet collected: Pi id -> {"job": int, "tests": [...]}.
+        # Saved with the results so a dashboard restart doesn't lose a round in progress.
+        self.round: dict[str, dict] = {}
 
     def load(self) -> None:
-        self._pis = {}
+        self._pis, self.round = {}, {}
         if not self.path.exists():
             return
         try:
@@ -25,6 +28,10 @@ class BenchStore:
             if not isinstance(pis, dict) or not all(isinstance(v, dict) for v in pis.values()):
                 raise ValueError("bad shape")
             self._pis = pis
+            rnd = data.get("round", {})
+            if isinstance(rnd, dict):
+                self.round = {k: v for k, v in rnd.items()
+                              if isinstance(v, dict) and isinstance(v.get("tests"), list)}
         except (OSError, ValueError, KeyError, TypeError) as e:
             try:
                 os.replace(self.path, self.path.with_name(self.path.name + ".bak"))
@@ -37,7 +44,7 @@ class BenchStore:
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name, suffix=".tmp")
         try:
             with os.fdopen(fd, "w") as f:
-                json.dump({"pis": self._pis}, f, indent=2)
+                json.dump({"pis": self._pis, "round": self.round}, f, indent=2)
             os.replace(tmp, self.path)
         except BaseException:
             os.unlink(tmp)
@@ -46,8 +53,11 @@ class BenchStore:
     def results(self, pi_id: str) -> dict:
         return self._pis.get(pi_id, {})
 
-    def record(self, pi_id: str, test: str, result: dict, at: str) -> None:
+    def record(self, pi_id: str, test: str, result: dict, at: str) -> bool:
+        if not isinstance(result, dict):
+            return False  # malformed answer from an agent: ignore rather than break the page
         self._pis.setdefault(pi_id, {})[test] = {**result, "measured": at}
+        return True
 
     def record_error(self, pi_id: str, test: str, message: str, at: str) -> None:
         entry = self._pis.setdefault(pi_id, {}).setdefault(test, {})

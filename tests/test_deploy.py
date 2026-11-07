@@ -20,7 +20,12 @@ case "$(basename "$0")" in
     [[ " $STUB_DOWN " == *" ${@: -2:1} "* || " $STUB_DOWN " == *" $host "* ]] && exit 255
     if [[ $last == *"test -f /etc/rpidash-agent.toml"* ]]; then [[ " $STUB_FRESH " == *" ${@: -2:1} "* ]] && exit 1; exit 0; fi
     if [[ $last == *"install.sh"* ]]; then [[ " $STUB_INSTALL_FAILS " == *" ${@: -2:1} "* ]] && exit 1; exit 0; fi
-    if [[ $last == *"8765/health"* ]]; then echo "${STUB_VERSION:-@AGENT_VERSION@}"; exit 0; fi
+    if [[ $last == *"8765/health"* ]]; then
+      n=$(( $(cat "$STUB_LOG.health" 2>/dev/null || echo 0) + 1 )); echo $n > "$STUB_LOG.health"
+      (( n <= ${STUB_SLOW_START:-0} )) && exit 1
+      echo "${STUB_VERSION:-@AGENT_VERSION@}"; exit 0
+    fi
+    if [[ $last == *"cat > ~/rpidash-agent/token"* ]]; then cat > "$STUB_LOG.token.${@: -2:1}"; exit 0; fi
     ;;
 esac
 exit 0
@@ -55,7 +60,7 @@ def test_upgrade_every_pi_in_pis_json(env):
     assert r.returncode == 0, r.stderr
     assert [l.split()[0] for l in log if l.startswith("rsync")] == ["rsync", "rsync"]
     assert any("rpi-a:~/rpidash-agent/" in l for l in log) and any("rpi-b:~/rpidash-agent/" in l for l in log)
-    assert not [l for l in log if l.startswith("scp")]  # configs exist: no token sent
+    assert not [l for l in log if "cat > ~/rpidash-agent/token" in l]  # configs exist: no token sent
     assert sum("sudo" in l and "install.sh" in l for l in log) == 2
     assert "rpi-a" in r.stdout and "ok" in r.stdout and __version__ in r.stdout
 
@@ -69,8 +74,9 @@ def test_named_hosts_only(env):
 def test_first_install_sends_token_and_services(env):
     r, log = deploy(env, "--services", "cpu-performance,user:oled-stats", "rpi-a", STUB_FRESH="rpi-a")
     assert r.returncode == 0, r.stderr
-    scp = [l for l in log if l.startswith("scp")]
-    assert len(scp) == 1 and "rpi-a:~/rpidash-agent/token" in scp[0]
+    sends = [l for l in log if "cat > ~/rpidash-agent/token" in l]
+    assert len(sends) == 1 and "rpi-a" in sends[0] and "umask 077" in sends[0]
+    assert Path(env["STUB_LOG"] + ".token.rpi-a").read_text().strip() == "t" * 32
     install = next(l for l in log if "install.sh" in l)
     assert "RPIDASH_SERVICES='cpu-performance,user:oled-stats'" in install
     assert ("t" * 32) not in "\n".join(log)  # the token never appears on a command line
@@ -103,8 +109,8 @@ def test_rotate_token_pushes_new_token_then_switches_desktop(env, tmp_path):
     dash.write_text('token = "' + "t" * 32 + '"\nsubnet = "192.168.0.0/24"\n')
     r, log = deploy(env, "--rotate-token", RPIDASH_DASHBOARD_CONFIG=str(dash))
     assert r.returncode == 0, r.stdout + r.stderr
-    scp = [l for l in log if l.startswith("scp")]
-    assert len(scp) == 2 and all("token.new" in l and "~/rpidash-agent/token" in l for l in scp)
+    sends = [l for l in log if "cat > ~/rpidash-agent/token" in l]
+    assert len(sends) == 2
     assert sum("RPIDASH_ROTATE=1" in l and "install.sh" in l for l in log) == 2
     token_file = Path(env["RPIDASH_TOKEN_FILE"])
     new = token_file.read_text().strip()
@@ -125,3 +131,34 @@ def test_rotate_token_partial_failure_keeps_new_token_pending(env, tmp_path):
     r2, log2 = deploy(env, "--rotate-token", "rpi-b")  # retry reuses the same new token
     assert r2.returncode == 0
     assert token_file.read_text().strip() == pending
+
+
+
+def test_registry_host_names_are_validated(env, tmp_path):
+    reg = Path(env["RPIDASH_REGISTRY"])
+    reg.write_text(json.dumps({"pis": [{"hostname": "-oProxyCommand=touch /tmp/pwned"}, {"hostname": "rpi-b"}]}))
+    r, log = deploy(env)
+    assert r.returncode == 1 and "invalid" in r.stdout
+    assert not any("ProxyCommand" in l for l in log)
+    assert any("rpi-b" in l and "install.sh" in l for l in log)
+
+
+def test_services_without_value_fails_fast(env):
+    r, log = deploy(env, "--services")
+    assert r.returncode == 2 and log == []
+
+
+def test_failed_install_removes_the_token_copy(env):
+    r, log = deploy(env, "rpi-a", STUB_FRESH="rpi-a", STUB_INSTALL_FAILS="rpi-a")
+    assert r.returncode == 1
+    assert any("rm -f ~/rpidash-agent/token" in l for l in log)
+
+
+def test_version_check_waits_for_a_slow_start(env):
+    r, _ = deploy(env, "rpi-a", STUB_SLOW_START="2", RPIDASH_RETRY_DELAY="0")
+    assert r.returncode == 0, r.stdout
+
+
+def test_every_ssh_call_has_a_timeout(env):
+    r, log = deploy(env, "rpi-a")
+    assert all("ConnectTimeout" in l for l in log if l.startswith(("ssh", "scp")))
