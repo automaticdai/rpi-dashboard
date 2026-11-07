@@ -123,9 +123,15 @@ cp dashboard/dashboard.example.toml dashboard.toml   # set token = the token abo
 Open http://127.0.0.1:8080, then use **Scan network** or add a Pi by IP. Each dashboard
 instance keeps its own `pis.json` and `bench.json`, which you can copy between machines.
 
+Under WSL2 the default `--host 127.0.0.1` is widened to `0.0.0.0` automatically, because WSL's
+localhost forwarding can't reach a loopback-only bind; a Windows browser can then open
+`http://localhost:<port>`. WSL2's NAT keeps it off the LAN. If a Windows program already
+listens on the same port (Foxit PDF takes 4000, for example), Windows wins and you see nothing,
+so pick another port.
+
 To keep it running in WSL (systemd enabled in `/etc/wsl.conf`), install
-`dashboard/rpidash-dashboard-wsl.service` as a user service; it serves on port 4000
-(http://127.0.0.1:4000). Install steps are in the file's header. Logs:
+`dashboard/rpidash-dashboard-wsl.service` as a user service; it serves on port 4080
+(http://localhost:4080). Install steps are in the file's header. Logs:
 `journalctl --user -u rpidash-dashboard -f`. WSL itself only boots when something starts it,
 and stops the distro again once no session is open, so to have the dashboard up at Windows
 logon, add a logon Task Scheduler task that runs `wscript.exe start-wsl.vbs`, where
