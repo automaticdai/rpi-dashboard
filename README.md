@@ -123,6 +123,13 @@ cp dashboard/dashboard.example.toml dashboard.toml   # set token = the token abo
 Open http://127.0.0.1:8080, then use **Scan network** or add a Pi by IP. Each dashboard
 instance keeps its own `pis.json` and `bench.json`, which you can copy between machines.
 
+To keep it running in WSL (systemd enabled in `/etc/wsl.conf`), install
+`dashboard/rpidash-dashboard-wsl.service` as a user service; it serves on port 4000
+(http://127.0.0.1:4000). Install steps are in the file's header. Logs:
+`journalctl --user -u rpidash-dashboard -f`. WSL itself only boots when something starts it,
+so to have the dashboard up at Windows logon, add a Task Scheduler task that runs
+`wsl.exe --exec /bin/true`.
+
 On a Pi, see [Run the dashboard on a Pi](#run-the-dashboard-on-a-pi).
 
 ## Run the dashboard on a Pi

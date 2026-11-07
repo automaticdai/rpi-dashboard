@@ -1,0 +1,21 @@
+# Run the dashboard on the desktop (WSL with systemd enabled) as a user service, on port 4000.
+# Assumes the repo is at ~/projects/rpi-dashboard with .venv and dashboard.toml in it (edit the paths if not).
+# Install with:
+#   cp dashboard/rpidash-dashboard-wsl.service ~/.config/systemd/user/rpidash-dashboard.service
+#   systemctl --user daemon-reload && systemctl --user enable --now rpidash-dashboard
+#   sudo loginctl enable-linger "$USER"   # start at WSL boot without a login shell
+[Unit]
+Description=rpi-dashboard web dashboard (WSL)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/rpi-dashboard
+ExecStart=%h/projects/rpi-dashboard/.venv/bin/python -m rpidash_dashboard --config %h/projects/rpi-dashboard/dashboard.toml --port 4000
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=rpidash-dashboard
+
+[Install]
+WantedBy=default.target
