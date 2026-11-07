@@ -14,6 +14,14 @@ class AgentAuthError(AgentError):
     """Agent rejected the token (HTTP 401)."""
 
 
+class AgentRejected(AgentError):
+    """Agent answered but refused the request (HTTP 400/409); the message is the agent's."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class AgentClient:
     def __init__(self, token: str, port: int = 8765, timeout: float = 3.0,
                  transport: httpx.AsyncBaseTransport | None = None) -> None:
@@ -23,10 +31,11 @@ class AgentClient:
         self._http = httpx.AsyncClient(transport=transport, timeout=timeout)
 
     async def _req(self, method: str, host: str, path: str, *, port=None, params=None, timeout=None,
-                   auth=True) -> dict:
+                   auth=True, json=None) -> dict:
         url = f"http://{host}:{port or self.port}{path}"
         try:
-            r = await self._http.request(method, url, params=params, headers=self._auth if auth else None,
+            r = await self._http.request(method, url, params=params, json=json,
+                                         headers=self._auth if auth else None,
                                          timeout=self.timeout if timeout is None else timeout)
         except httpx.HTTPError as e:
             raise AgentError(f"{host}: {type(e).__name__}: {e}") from e
@@ -34,6 +43,9 @@ class AgentClient:
             raise AgentAuthError(f"{host}: token rejected")
         if r.status_code == 403:
             raise PermissionError(r.json().get("error", "forbidden") if _is_json(r) else "forbidden")
+        if r.status_code in (400, 409):
+            msg = r.json().get("error", f"HTTP {r.status_code}") if _is_json(r) else f"HTTP {r.status_code}"
+            raise AgentRejected(msg, r.status_code)
         if not r.is_success:
             raise AgentError(f"{host}: HTTP {r.status_code}")
         try:
@@ -66,6 +78,18 @@ class AgentClient:
     async def service_action(self, host: str, entry: str, action: str, port: int | None = None) -> dict:
         return await self._req("POST", host, f"/services/{quote(entry, safe='')}/{quote(action, safe='')}",
                                port=port)
+
+    async def bench_start(self, host: str, tests: list[str], port: int | None = None) -> dict:
+        return await self._req("POST", host, "/bench", port=port, json={"tests": tests})
+
+    async def bench_status(self, host: str, port: int | None = None) -> dict:
+        return await self._req("GET", host, "/bench", port=port)
+
+    async def stress_start(self, host: str, body: dict, port: int | None = None) -> dict:
+        return await self._req("POST", host, "/stress", port=port, json=body)
+
+    async def stress_stop(self, host: str, port: int | None = None) -> dict:
+        return await self._req("POST", host, "/stress/stop", port=port)
 
     async def aclose(self) -> None:
         await self._http.aclose()

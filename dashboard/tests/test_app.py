@@ -1,3 +1,4 @@
+import json
 import time
 
 from conftest import TOKEN, make_pi
@@ -177,3 +178,58 @@ def test_shutdown_refused_when_address_now_belongs_to_another_pi(make_client):
     with c:
         assert c.post("/api/pis/A/shutdown").status_code == 409
     assert not [r for r in fake.requests if r.method == "POST"]
+
+
+def test_bench_round_collects_results(make_client):
+    c, reg, fake = make_client({"10.0.0.1": "ok", "10.0.0.2": "ok"},
+                               pis=[make_pi("A", "10.0.0.1"), make_pi("B", "10.0.0.2")])
+    with c:
+        r = c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu", "net"]})
+        assert r.status_code == 200 and r.json() == {"A": {"started": True}}
+        assert fake.posted[-1] == ("/bench", {"tests": ["cpu", "net"]})
+        fake.bench_status["10.0.0.1"] = {"state": "done", "job": 1, "results": {"cpu": {"int_1": 760.0}},
+                                         "errors": {"net": "timed out"}, "current": None}
+        table = c.get("/api/bench").json()
+    rows = {row["id"]: row for row in table["rows"]}
+    assert rows["A"]["results"]["cpu"]["int_1"] == 760.0 and rows["A"]["results"]["cpu"]["measured"]
+    assert rows["A"]["results"]["net"]["error"] == "timed out"
+    assert rows["B"]["results"] == {} and table["running"] == {}
+    store = json.loads((reg.path.parent / "bench.json").read_text())
+    assert store["pis"]["A"]["cpu"]["int_1"] == 760.0
+
+
+def test_bench_round_shows_running(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        c.post("/api/bench", json={"ids": ["A"], "tests": ["disk"]})
+        fake.bench_status["10.0.0.1"] = {"state": "running", "job": 1, "current": "disk", "results": {}, "errors": {}}
+        assert c.get("/api/bench").json()["running"] == {"A": {"current": "disk", "tests": None}}
+
+
+def test_bench_round_rejects_bad_input_and_busy_pi(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        assert c.post("/api/bench", json={"ids": [], "tests": ["cpu"]}).status_code == 400
+        assert c.post("/api/bench", json={"ids": ["A"], "tests": ["gpu"]}).status_code == 400
+        assert c.post("/api/bench", json={"ids": ["Z"], "tests": ["cpu"]}).json() == {"Z": {"error": "unknown Pi"}}
+        fake.bench_busy = True
+        assert "already running" in c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu"]}).json()["A"]["error"]
+
+
+def test_stress_proxy(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        r = c.post("/api/pis/A/stress", json={"cpu": True, "ram": False, "net": False, "minutes": 5})
+        assert r.status_code == 200
+        assert fake.posted[-1] == ("/stress", {"cpu": True, "ram": False, "net": False, "minutes": 5})
+        assert c.post("/api/pis/A/stress/stop").status_code == 200
+        assert fake.posted[-1][0] == "/stress/stop"
+        assert c.post("/api/pis/A/stress", json={"cpu": True}, headers={"Origin": "http://evil.example"}).status_code == 403
+
+
+def test_busy_pi_message_is_not_called_unreachable(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    fake.bench_busy = True
+    with c:
+        err = c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu"]}).json()["A"]["error"]
+    assert err == "a benchmark is already running on this Pi"

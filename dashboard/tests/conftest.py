@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -26,6 +27,9 @@ class FakeAgents:
         self.behaviours = behaviours
         self.ids = ids or {}  # host -> agent id it reports
         self.requests = []
+        self.posted = []  # (path, json body) of POSTs
+        self.bench_status = {}  # host -> /bench status
+        self.bench_busy = False
 
     def agent_id(self, host):
         return self.ids.get(host, "ID-" + host)
@@ -42,6 +46,17 @@ class FakeAgents:
         if b == "forbid" and req.method == "POST":
             return httpx.Response(403, json={"error": "service not allowlisted"})
         p = req.url.path
+        if req.method == "POST":
+            body = json.loads(req.content) if req.content else None
+            self.posted.append((p, body))
+            if p == "/bench":
+                if self.bench_busy:
+                    return httpx.Response(409, json={"error": "a benchmark is already running on this Pi"})
+                return httpx.Response(202, json={"job": 1})
+            if p.startswith("/stress"):
+                return httpx.Response(200, json={"cpu": True, "ram": False, "net": False})
+        if p == "/bench":
+            return httpx.Response(200, json=self.bench_status.get(req.url.host, {"state": "idle"}))
         if p == "/health":
             return httpx.Response(200, json={"app": "rpidash-agent", "id": self.agent_id(req.url.host),
                                              "hostname": "new-pi", "version": "0.1.0"})

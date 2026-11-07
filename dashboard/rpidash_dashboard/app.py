@@ -17,7 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from .client import AgentAuthError, AgentClient, AgentError
+from .bench_store import BenchStore
+from .client import AgentAuthError, AgentClient, AgentError, AgentRejected
 from .config import DashboardConfig
 from .discovery import Rediscovery, scan
 from .registry import Pi, Registry
@@ -36,6 +37,21 @@ class Order(BaseModel):
     ids: list[str]
 
 
+class BenchRound(BaseModel):
+    ids: list[str]
+    tests: list[str]
+
+
+class StressRequest(BaseModel):
+    cpu: bool = False
+    ram: bool = False
+    net: bool = False
+    minutes: int = 5
+
+
+BENCH_TESTS = ("cpu", "disk", "net")
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -47,7 +63,9 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         registry.load()
     agents = client or AgentClient(cfg.token, port=cfg.agent_port)
     rediscovery = Rediscovery(registry, agents, cfg.subnet)
-    state = {"last_save": 0.0, "status": {}}
+    state = {"last_save": 0.0, "status": {}, "round": {}}  # round: Pi id -> tests still running
+    bench = BenchStore(cfg.registry_path.parent / "bench.json")
+    bench.load()
     log = logging.getLogger("rpidash_dashboard")
 
     def safe_save() -> None:
@@ -96,6 +114,8 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             return await asyncio.wait_for(coro, call_timeout())
         except AgentAuthError:
             raise HTTPException(502, "agent rejected the dashboard token")
+        except AgentRejected as e:
+            raise HTTPException(e.status, str(e))
         except PermissionError as e:
             raise HTTPException(403, str(e))
         except (AgentError, asyncio.TimeoutError) as e:
@@ -162,6 +182,8 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         if not registry.remove(pi_id):
             raise HTTPException(404, "unknown Pi")
         safe_save()
+        bench.forget(pi_id)
+        state["round"].pop(pi_id, None)
         return Response(status_code=204)
 
     @app.put("/api/order", status_code=204)
@@ -169,6 +191,76 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         registry.reorder(body.ids)
         safe_save()
         return Response(status_code=204)
+
+    def save_bench() -> None:
+        try:
+            bench.save()
+        except OSError as e:
+            log.warning("could not save %s: %s", bench.path, e)
+
+    @app.post("/api/bench")
+    async def start_bench(body: BenchRound):
+        tests = [t for t in BENCH_TESTS if t in body.tests]
+        if not body.ids or not tests or len(tests) != len(set(body.tests)):
+            raise HTTPException(400, f"choose at least one Pi and tests from {list(BENCH_TESTS)}")
+
+        async def start_one(pi_id: str) -> dict:
+            if registry.get(pi_id) is None:
+                return {"error": "unknown Pi"}
+            try:
+                pi = await verified_pi(pi_id)
+                await agent_call(agents.bench_start(pi.host, tests, pi.port))
+            except HTTPException as e:
+                return {"error": str(e.detail)}
+            state["round"][pi_id] = tests
+            return {"started": True}
+
+        ids = list(dict.fromkeys(body.ids))
+        return dict(zip(ids, await asyncio.gather(*(start_one(i) for i in ids))))
+
+    @app.get("/api/bench")
+    async def bench_table():
+        running = {}
+
+        async def check(pi_id: str, tests: list[str]) -> None:
+            pi = registry.get(pi_id)
+            if pi is None:
+                state["round"].pop(pi_id, None)
+                return
+            try:
+                st = await asyncio.wait_for(agents.bench_status(pi.host, pi.port), call_timeout())
+            except (AgentError, PermissionError, asyncio.TimeoutError):
+                running[pi_id] = {"current": None, "tests": tests, "unreachable": True}
+                return
+            now = _now_iso()
+            if st.get("state") == "running":
+                running[pi_id] = {"current": st.get("current"), "tests": st.get("tests")}
+                return
+            if st.get("state") == "done":
+                for t, res in (st.get("results") or {}).items():
+                    bench.record(pi_id, t, res, now)
+                for t, err in (st.get("errors") or {}).items():
+                    bench.record_error(pi_id, t, err, now)
+            else:  # idle: the agent restarted and lost the job
+                for t in tests:
+                    bench.record_error(pi_id, t, "the agent restarted before the test finished", now)
+            state["round"].pop(pi_id, None)
+            save_bench()
+
+        await asyncio.gather(*(check(i, t) for i, t in list(state["round"].items())))
+        rows = [{"id": p.id, "hostname": p.hostname, "model": (p.spec or {}).get("model"),
+                 "results": bench.results(p.id)} for p in registry.all()]
+        return {"rows": rows, "running": running}
+
+    @app.post("/api/pis/{pi_id}/stress")
+    async def stress_start(pi_id: str, body: StressRequest):
+        pi = await verified_pi(pi_id)
+        return await agent_call(agents.stress_start(pi.host, body.model_dump(), pi.port))
+
+    @app.post("/api/pis/{pi_id}/stress/stop")
+    async def stress_stop(pi_id: str):
+        pi = await verified_pi(pi_id)
+        return await agent_call(agents.stress_stop(pi.host, pi.port))
 
     @app.post("/api/scan")
     async def scan_network():
