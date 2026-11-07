@@ -308,3 +308,36 @@ def test_result_from_another_pi_or_malformed_is_not_recorded(make_client):
     assert r.status_code == 200
     assert "int_1" not in r.json()["rows"][0]["results"].get("cpu", {})
     assert r.json()["rows"][0]["results"]["disk"]["seq_read_MBps"] == 5.0
+
+
+def test_spec_refreshed_when_pi_comes_back_online(make_client):
+    pi = make_pi("A", "10.0.0.1")
+    pi.spec = {"model": "Raspberry Pi 3", "root_size": 7_200_000_000}   # saved before the card swap
+    c, reg, fake = make_client({"10.0.0.1": "down"}, pis=[pi])
+    with c:
+        assert c.get("/api/pis").json()[0]["status"] == "offline"
+        fake.behaviours["10.0.0.1"] = "ok"                                 # back, with new hardware
+        fake.spec = {"model": "Raspberry Pi 3", "root_size": 31_000_000_000}
+        row = c.get("/api/pis").json()[0]
+    assert row["spec"]["root_size"] == 31_000_000_000
+    assert reg.get("A").spec["root_size"] == 31_000_000_000
+
+
+def test_spec_not_refetched_on_every_poll(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        for _ in range(4):
+            c.get("/api/pis")
+    assert sum(r.url.path == "/spec" for r in fake.requests) == 1   # once on first sight, then hourly
+
+
+def test_disk_result_remembers_which_disk(make_client):
+    pi = make_pi("A", "10.0.0.1")
+    pi.spec = {"model": "Pi", "root_size": 7_200_000_000, "root_device": "/dev/mmcblk0p2"}
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[pi])
+    fake.spec = pi.spec
+    with c:
+        c.post("/api/bench", json={"ids": ["A"], "tests": ["disk"]})
+        fake.bench_status["10.0.0.1"] = done(1, {"disk": {"seq_read_MBps": 20.0}})
+        disk = c.get("/api/bench").json()["rows"][0]["results"]["disk"]
+    assert disk["root_size"] == 7_200_000_000 and disk["root_device"] == "/dev/mmcblk0p2"

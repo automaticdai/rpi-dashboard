@@ -26,6 +26,8 @@ from .status import health_warnings
 
 # last_seen alone only forces a write this often; status changes are written at once.
 SAVE_EVERY_S = 3600.0
+# Hardware details are re-read when a Pi comes back online (reboot, new SD card...) and hourly.
+SPEC_REFRESH_S = 3600.0
 HERE = Path(__file__).parent
 
 
@@ -63,7 +65,7 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         registry.load()
     agents = client or AgentClient(cfg.token, port=cfg.agent_port)
     rediscovery = Rediscovery(registry, agents, cfg.subnet)
-    state = {"last_save": 0.0, "status": {}}
+    state = {"last_save": 0.0, "status": {}, "spec_at": {}, "spec_changed": False}
     bench = BenchStore(cfg.registry_path.parent / "bench.json")
     bench.load()
     log = logging.getLogger("rpidash_dashboard")
@@ -135,6 +137,20 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             raise HTTPException(404, "unknown Pi")
         return pi
 
+    async def refresh_spec(pi: Pi) -> None:
+        last = state["spec_at"].get(pi.id)
+        came_back = state["status"].get(pi.id) != "online"
+        if not came_back and last is not None and time.monotonic() - last < SPEC_REFRESH_S:
+            return
+        try:
+            spec = await asyncio.wait_for(agents.spec(pi.host, pi.port), call_timeout())
+        except (AgentError, PermissionError, asyncio.TimeoutError):
+            return
+        state["spec_at"][pi.id] = time.monotonic()
+        if isinstance(spec, dict) and spec != pi.spec:
+            pi.spec = spec
+            state["spec_changed"] = True
+
     async def poll(pi: Pi) -> dict:
         status, live = "offline", None
         try:
@@ -144,6 +160,7 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             else:
                 status = "online"
                 pi.last_seen = _now_iso()
+                await refresh_spec(pi)
         except AgentAuthError:
             status = "auth_failed"
         except (AgentError, PermissionError, asyncio.TimeoutError):
@@ -159,6 +176,8 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         statuses = {r["id"]: r["status"] for r in rows}
         changed = statuses != state["status"]
         state["status"] = statuses
+        if state["spec_changed"]:
+            changed, state["spec_changed"] = True, False
         if changed or time.monotonic() - state["last_save"] >= SAVE_EVERY_S:
             safe_save()
             state["last_save"] = time.monotonic()
@@ -260,6 +279,10 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             if st.get("state") == "done" and ours:
                 for t, res in (st.get("results") or {}).items():
                     if t in tests:
+                        if t == "disk" and isinstance(res, dict) and pi.spec:
+                            # remember which disk this was, so a later card swap marks it stale
+                            res = {**res, "root_size": pi.spec.get("root_size"),
+                                   "root_device": pi.spec.get("root_device")}
                         bench.record(pi_id, t, res, at)
                 for t, err in (st.get("errors") or {}).items():
                     if t in tests:
@@ -275,6 +298,7 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             return {t: r for t, r in results.items() if t in BENCH_TESTS}
 
         rows = [{"id": p.id, "hostname": p.hostname, "model": (p.spec or {}).get("model"),
+                 "root_size": (p.spec or {}).get("root_size"),
                  "results": known(bench.results(p.id))} for p in registry.all()]
         return {"rows": rows, "running": running}
 

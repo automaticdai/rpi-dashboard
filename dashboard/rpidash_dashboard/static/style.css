@@ -179,6 +179,7 @@ table.bench thead tr:last-child th:nth-child(2), table.bench thead tr:last-child
 td.best { font-weight: 700; }
 td.empty { color: var(--off); }
 td.failed { color: var(--bad); }
+td.stale { color: var(--off); text-decoration: line-through; text-decoration-thickness: 1px; }
 .running { color: var(--warn); font-size: .85rem; font-weight: 400; }
 
 /* Detail page */

@@ -86,8 +86,16 @@ function usedOf(used, total) {
   return `${fmt(used / unit[0])} of ${fmt(total / unit[0])} ${unit[1]}`;
 }
 
+// "Debian GNU/Linux 13 (trixie)" -> "Debian 13", "Ubuntu 24.04.5 LTS" -> "Ubuntu 24.04".
+function osShort(os) {
+  if (typeof os !== "string" || !os) return "";
+  const m = os.match(/^(Debian|Raspbian) GNU\/Linux (\d+)/) || os.match(/^(Ubuntu) (\d+\.\d+)/);
+  return m ? `${m[1]} ${m[2]}` : os;
+}
+
 function hardwareLine(spec, s) {
   const parts = [];
+  if (spec.os) parts.push(osShort(spec.os));
   if (spec.cores) parts.push(`${spec.cores} core${spec.cores === 1 ? "" : "s"}`);
   const ram = ramSize(spec.ram_total || (s && s.mem_total));
   if (ram) parts.push(`${ram} RAM`);
@@ -203,6 +211,10 @@ const TABLE_COLS = [
     const m = (p.spec || {}).model || "";
     return `<span title="${esc(m)}">${esc(m.replace(/^Raspberry Pi /, "").replace(/ Rev [\d.]+$/, ""))}</span>`;
   }, false],
+  ["os", "OS", (p) => osShort((p.spec || {}).os), (p) => {
+    const os = (p.spec || {}).os || "";
+    return os ? `<span title="${esc(os)}">${esc(osShort(os))}</span>` : "–";
+  }, false],
   ["status", "Status", (p) => p.status, (p) => `<span class="dot ${p.status}"></span>${STATUS_TEXT[p.status]}`, false],
   ["temp", "Temp °C", (p) => smp(p).temp_c, (p) => {
     const t = smp(p).temp_c, h = heat(t);
@@ -220,8 +232,7 @@ const TABLE_COLS = [
     return diskUsed(p) != null ? usedOf(diskUsed(p), size) : (size ? `<span class="of">${bytes(size)}</span>` : "–");
   }, true],
   ["diskpct", "Disk %", (p) => smp(p).disk_pct, (p) => fixed(smp(p).disk_pct, 0), true],
-  ["down", "Down", (p) => smp(p).net_rx_bps, (p) => rate(smp(p).net_rx_bps), true],
-  ["up", "Up", (p) => smp(p).net_tx_bps, (p) => rate(smp(p).net_tx_bps), true],
+  ["net", "Network", (p) => smp(p).net_rx_bps, (p) => (p.live ? `↓ ${rate(smp(p).net_rx_bps)} ↑ ${rate(smp(p).net_tx_bps)}` : "–"), true],
   ["fan", "Fan rpm", (p) => smp(p).fan_rpm, (p) => (typeof smp(p).fan_rpm === "number" ? String(smp(p).fan_rpm) : "–"), true],
   ["uptime", "Uptime", (p) => p.live && p.live.uptime_s, (p) => (p.live ? duration(p.live.uptime_s) : "–"), true],
   ["throttled", "Throttled", (p) => smp(p).throttled, (p) => {
@@ -574,8 +585,11 @@ function relativeTo(key, v, worst) {
   return LOWER_IS_BETTER.has(key) ? worst / v : v / worst;
 }
 
-function benchCell(group, key, digits, best, worst) {
+function benchCell(group, key, digits, best, worst, rootSize) {
   if (!group) return `<td class="num empty">–</td>`;
+  // A disk result measured on different storage (e.g. before an SD card swap) is out of date.
+  const otherDisk = typeof group.root_size === "number" && typeof rootSize === "number" &&
+    Math.abs(group.root_size - rootSize) > rootSize * 0.02;
   const v = group[key];
   if (typeof v !== "number") {
     return group.error
@@ -583,13 +597,14 @@ function benchCell(group, key, digits, best, worst) {
       : `<td class="num empty">–</td>`;
   }
   const stale = group.error ? ` Last run failed: ${group.error}` : "";
-  const cls = v === best ? "num best" : "num";
+  const cls = (v === best && !otherDisk ? "num best" : "num") + (otherDisk ? " stale" : "");
   const raw = v.toLocaleString(undefined, { maximumFractionDigits: digits });
   const shown = benchView === "relative" && worst
     ? `${relativeTo(key, v, worst).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}×`
     : raw;
   const tip = benchView === "relative" ? `${raw}. ` : "";
-  return `<td class="${cls}" title="${esc(tip)}Measured ${esc(when(group.measured))}.${esc(stale)}">${shown}</td>`;
+  const moved = otherDisk ? ` Measured on a different disk (${bytes(group.root_size)}); run Disk again.` : "";
+  return `<td class="${cls}" title="${esc(tip)}Measured ${esc(when(group.measured))}.${esc(stale)}${esc(moved)}">${shown}</td>`;
 }
 
 function renderBenchTable(rows, running) {
@@ -604,7 +619,7 @@ function renderBenchTable(rows, running) {
     const note = run ? `<span class="running">${run.unreachable ? "waiting for the Pi" : `running ${TEST_NAME[run.current] || ""}`}</span>` : "";
     const cpu = r.results.cpu;
     const sub = cpu && cpu.compiler ? `<span class="unit" title="${esc(cpu.compiler)}">${esc(r.model || "")}</span>` : `<span class="unit">${esc(r.model || "")}</span>`;
-    return `<tr><th scope="row">${esc(r.hostname)} ${note}<br>${sub}</th>${BENCH_COLS.map(([g, k, d]) => benchCell(r.results[g], k, d, best[k], worst[k])).join("")}</tr>`;
+    return `<tr><th scope="row">${esc(r.hostname)} ${note}<br>${sub}</th>${BENCH_COLS.map(([g, k, d]) => benchCell(r.results[g], k, d, best[k], worst[k], r.root_size)).join("")}</tr>`;
   }).join("");
 }
 

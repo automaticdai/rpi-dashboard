@@ -32,6 +32,7 @@ class FakeAgents:
         self.bench_status = {}  # host -> /bench status
         self.bench_busy = False
         self.next_job = 1
+        self.spec = {"model": "Raspberry Pi 3"}
 
     def agent_id(self, host):
         return self.ids.get(host, "ID-" + host)
@@ -67,7 +68,7 @@ class FakeAgents:
             return httpx.Response(200, json={"app": "rpidash-agent", "id": self.agent_id(req.url.host),
                                              "hostname": "new-pi", "version": "0.1.0"})
         if p == "/spec":
-            return httpx.Response(200, json={"model": "Raspberry Pi 3"})
+            return httpx.Response(200, json=self.spec)
         if p == "/live":
             return httpx.Response(200, json={"id": self.agent_id(req.url.host), "version": EXPECTED_AGENT_VERSION, "sample": SAMPLE, "top": [], "services": [], "uptime_s": 5})
         if p == "/history":
