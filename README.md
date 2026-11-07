@@ -1,12 +1,35 @@
 # rpi-dashboard
 
 All your Pis, in one place. A small agent on each Raspberry Pi reports live stats, keeps
-7 days of history in memory, and can reboot or shut down the Pi or restart allowlisted services. A web
-dashboard shows every Pi at a glance, with charts and actions.
+7 days of history in memory, and can reboot or shut down the Pi or restart allowlisted
+services. A web dashboard shows every Pi at a glance, with charts, benchmarks, stress loads
+and actions.
 
-![Overview: one card per Pi showing temperature, CPU, RAM and disk, with a coloured edge that runs from green (cool) to red (hot)](docs/screenshots/overview.png)
+## What you get
 
-![Detail page for rpi-cm5: live values, top processes, hardware (serial and MAC addresses hidden), Reboot and Shut down buttons, and one-hour charts for temperature, CPU, RAM, disk, network and fan speed](docs/screenshots/pi-detail.png)
+### Overview: Cards, List or Table
+
+Switch the overview between three views (top right); your choice is remembered.
+
+- **Cards** — one card per Pi: OS, cores, RAM and disk type (SD, eMMC, NVMe...), then
+  temperature, CPU, RAM and disk ("used of total", then %), network, uptime and warning chips. The coloured edge runs from green (cool) through amber
+  to red (hot).
+- **List** — one compact row per Pi with the same information.
+- **Table** — numbers only, one row per Pi. Click a column heading to sort (again to reverse,
+  a third time to go back to your own order).
+
+Drag a card or row (or focus its ⠿ handle and use the arrow keys) to reorder; the order is
+saved. A Pi whose agent is older than the dashboard shows **Agent out of date**.
+
+![Overview in Cards view: one card per Pi showing temperature, CPU, RAM and disk, with a coloured edge from green (cool) to red (hot)](docs/screenshots/overview.png)
+
+### Detail page
+
+Live values, the ten busiest processes, allowlisted services with Start/Stop/Restart,
+hardware details, **Reboot** and **Shut down**, and charts for temperature, CPU, RAM, disk,
+network and fan speed over 1 h, 6 h, 24 h or 7 days.
+
+![Detail page for rpi-cm5: live values, top processes, hardware (serial and MAC addresses hidden), Reboot and Shut down buttons, and one-hour charts](docs/screenshots/pi-detail.png)
 
 ### Benchmarks
 
@@ -28,25 +51,34 @@ by its lowest-performing Pi (1.0×).
 Start a CPU, RAM and/or network load on the ticked Pis and watch them live: CPU, RAM,
 temperature and network, read every 2 seconds, one line per Pi. The network load downloads
 large package-index files from Debian and Ubuntu mirrors in rotation (mirrors exist to serve
-big downloads). Every load stops by itself
-after the time you choose (1 to 30 minutes), or when you press Stop.
+big downloads). Every load stops by itself after the time you choose (1 to 30 minutes), or
+when you press Stop.
 
 ![Stress tab during a 2-minute CPU, RAM and network load on all five Pis: live charts of CPU, RAM, temperature and network download, one line per Pi](docs/screenshots/stress.png)
 
+## How it works
+
 ```
 Browser ──▶ dashboard (desktop or a Pi) ──HTTP :8765 + token──▶ agent on each Pi
-               └─ pis.json (the Pis it knows)
+               └─ pis.json (the Pis it knows), bench.json (saved benchmark results)
 ```
 
 - **No database.** History lives in each agent's memory (about 3.5 MB for a full week) and
-  restarts when the Pi or the agent restarts. Nothing is written to the SD card.
+  restarts when the Pi or the agent restarts. Nothing is written to the SD card in normal use.
   Measured agent memory (RSS) on 2026-11-06: 27–29 MB on every board, Pi Zero 2 W included.
 - **Pis are remembered.** The dashboard keeps `pis.json`, so you add a Pi once. If a Pi's
   DHCP address changes, the dashboard finds it again by its machine ID.
-- **Safe actions.** Every call except `/health` needs the shared token. Services can only be
-  started, stopped or restarted if they are in that Pi's allowlist.
+- **Safe actions.** Every agent call except `/health` needs the shared token. Services can
+  only be started, stopped or restarted if they are in that Pi's allowlist. The agent runs
+  under a hardened systemd unit; stress loads run as separate units that stop themselves.
+- **No login on the dashboard.** It only accepts requests whose Host is in `allowed_hosts`,
+  and refuses reboots, shutdowns and other actions sent by other websites. Before any action
+  it checks that the Pi at the saved address is still the same Pi, so a DHCP address swap
+  can't make you reboot the wrong one.
 
-## Make a token
+## Set up
+
+### 1. Make a token
 
 ```sh
 mkdir -p ~/.config/rpidash && python3 -c "import secrets;print(secrets.token_urlsafe(32))" > ~/.config/rpidash/token
@@ -55,26 +87,28 @@ chmod 600 ~/.config/rpidash/token
 
 Never commit it. The dashboard and every agent use the same token.
 
-## Install the agent on a Pi
+### 2. Install or upgrade the agent: `deploy.sh`
 
-Needs Python 3.11 or newer, which Raspberry Pi OS (Debian 13) and Ubuntu 24.04 have.
+Needs ssh key login to each Pi (aliases in `~/.ssh/config`) and Python 3.11 or newer on the Pi
+(Raspberry Pi OS / Debian 13 and Ubuntu 24.04 have it). A C compiler on the Pi is needed for
+the CPU benchmark and CPU stress.
 
 ```sh
-rsync -a --delete --exclude tests --exclude build --exclude '*.egg-info' agent/ <pi>:~/rpidash-agent/
-scp -p ~/.config/rpidash/token <pi>:~/rpidash-agent/token     # first install only
-ssh -t <pi> "cd ~/rpidash-agent && sudo RPIDASH_SERVICES='cpu-performance,user:oled-stats' ./install.sh"
+./deploy.sh                                          # every Pi in pis.json
+./deploy.sh rpi-cm4 rpi-5                            # just these
+./deploy.sh --services 'cpu-performance,user:oled-stats' rpi-cm4   # allowlist, first install
 ```
 
-The token is read from that file (never the command line, so it stays out of `ps` and the
-sudo log) and the file is deleted once the config is written. Running `install.sh` again
-upgrades the agent and keeps the existing `/etc/rpidash-agent.toml`.
-The allowlist takes system units by name, or user units of `service_user` (default: the
-sudo user) written as `user:<unit>`. To change it later, edit `/etc/rpidash-agent.toml`,
-then run `sudo systemctl restart rpidash-agent`.
+For each Pi it copies the agent, sends the token on a first install (as a file, never on a
+command line), runs `install.sh` with sudo (asking for your password where the Pi needs one),
+and checks the running agent reports this version. One Pi failing doesn't stop the others;
+a summary table comes last.
 
-Check it's running: `curl http://<pi-ip>:8765/health`
+The allowlist takes system units by name, or user units of `service_user` (default: the sudo
+user) written as `user:<unit>`. To change it later, edit `/etc/rpidash-agent.toml` on the Pi,
+then `sudo systemctl restart rpidash-agent`.
 
-## Run the dashboard
+### 3. Run the dashboard
 
 On the desktop (WSL works):
 
@@ -85,18 +119,36 @@ cp dashboard/dashboard.example.toml dashboard.toml   # set token = the token abo
 ```
 
 Open http://127.0.0.1:8080, then use **Scan network** or add a Pi by IP. Each dashboard
-instance keeps its own `pis.json`, which you can copy between machines.
+instance keeps its own `pis.json` and `bench.json`, which you can copy between machines.
 
-On a Pi: install into `/opt/rpidash-dashboard/venv`, put the config at
-`/etc/rpidash/dashboard.toml` (it can stay root-only, mode 600) with
-`registry_path = "/var/lib/rpidash/pis.json"` and
+On a Pi, see [Run the dashboard on a Pi](#run-the-dashboard-on-a-pi).
+
+## Run the dashboard on a Pi
+
+Install into `/opt/rpidash-dashboard/venv`, put the config at `/etc/rpidash/dashboard.toml`
+(it can stay root-only, mode 600) with `registry_path = "/var/lib/rpidash/pis.json"` and
 `allowed_hosts` set to the names and IPs you'll browse to (for example
 `["rpi-5", "192.168.0.23"]`), and use `dashboard/rpidash-dashboard.service`.
 
-The dashboard has no login, so it only accepts requests whose Host is in `allowed_hosts`,
-and it refuses reboots, shutdowns and service actions sent by other websites. Before any action it
-checks that the Pi at the saved address is still the same Pi, so a DHCP address swap
-can't make you reboot the wrong one.
+## Change the token
+
+```sh
+./deploy.sh --rotate-token          # every Pi in pis.json (or name the Pis)
+```
+
+It makes a new token, sends it to each Pi as a file and swaps it into that Pi's config
+(allowlists and other settings are kept). Only when **every** Pi in the run has it does it
+switch the desktop over: the new token becomes `~/.config/rpidash/token` (the old one is kept
+as `token.old`) and `dashboard.toml` is updated; then restart the dashboard. If some Pis
+fail, the new token waits in `token.new`, and `./deploy.sh --rotate-token <those Pis>` reuses
+it. Until the dashboard restarts, Pis that already have the new token show **Token rejected**.
+
+## Versions
+
+The agent and dashboard are released together and share a version number
+(`agent/rpidash_agent/__init__.py`, `dashboard/rpidash_dashboard/__init__.py`; a test keeps
+them in step). Bump it with every agent change, then run `./deploy.sh`; any Pi still on an
+older agent shows **Agent out of date** until it is upgraded.
 
 ## Develop
 
@@ -105,4 +157,5 @@ uv venv .venv && uv pip install -e agent -e dashboard pytest pytest-asyncio
 .venv/bin/pytest
 ```
 
-Design: `docs/superpowers/specs/2026-11-06-rpi-dashboard-design.md`
+Designs: `docs/superpowers/specs/2026-11-06-rpi-dashboard-design.md` (dashboard and agent),
+`docs/superpowers/specs/2026-11-07-bench-stress-design.md` (benchmarks and stress).
