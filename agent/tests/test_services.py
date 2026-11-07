@@ -71,3 +71,9 @@ def test_poweroff():
     r = FakeRunner()
     svc(r).poweroff()
     assert r.calls == [["systemctl", "poweroff"]]
+
+
+def test_restart_agent_does_not_wait_for_its_own_death():
+    r = FakeRunner()
+    svc(r).restart_agent()
+    assert r.calls == [["systemctl", "--no-block", "restart", "rpidash-agent.service"]]

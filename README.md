@@ -27,7 +27,8 @@ saved. A Pi whose agent is older than the dashboard shows **Agent out of date**.
 
 ### Detail page
 
-Live values, the ten busiest processes, allowlisted services with Start/Stop/Restart,
+Live values, the ten busiest processes, allowlisted services with Start/Stop/Restart
+(the agent itself is listed first, with Restart only),
 hardware details, **Reboot** and **Shut down**, and charts for temperature, CPU, RAM, disk,
 network and fan speed over 1 h, 6 h, 24 h or 7 days.
 

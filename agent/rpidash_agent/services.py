@@ -5,6 +5,7 @@ import subprocess
 from typing import Callable
 
 ACTIONS = frozenset({"start", "stop", "restart"})
+AGENT_UNIT = "rpidash-agent.service"
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess]
 
@@ -58,3 +59,8 @@ class Services:
 
     def poweroff(self) -> None:
         self.runner(["systemctl", "poweroff"])
+
+    def restart_agent(self) -> None:
+        # --no-block: queue the job and return, since systemd kills this process (and any
+        # systemctl waiting inside it) as part of the restart.
+        self.runner(["systemctl", "--no-block", "restart", AGENT_UNIT])

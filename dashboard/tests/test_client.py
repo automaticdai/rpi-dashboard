@@ -79,3 +79,14 @@ async def test_health_sends_no_token():
 
     await client(h).health("192.168.0.99")
     assert seen["auth"] is None
+
+
+async def test_restart_agent_posts():
+    seen = {}
+
+    def h(req):
+        seen["m"], seen["p"] = req.method, req.url.path
+        return httpx.Response(202, json={"ok": True})
+
+    assert await client(h).restart_agent("h") == {"ok": True}
+    assert seen == {"m": "POST", "p": "/agent/restart"}

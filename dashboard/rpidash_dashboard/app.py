@@ -352,6 +352,11 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         pi = await verified_pi(pi_id)
         return await agent_call(agents.shutdown(pi.host, pi.port))
 
+    @app.post("/api/pis/{pi_id}/agent/restart")
+    async def restart_agent(pi_id: str):
+        pi = await verified_pi(pi_id)
+        return await agent_call(agents.restart_agent(pi.host, pi.port))
+
     @app.post("/api/pis/{pi_id}/services/{entry}/{action}")
     async def service_action(pi_id: str, entry: str, action: str):
         pi = await verified_pi(pi_id)

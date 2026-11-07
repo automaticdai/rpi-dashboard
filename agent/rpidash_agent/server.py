@@ -30,6 +30,7 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
                 reboot_delay: float = 1.0, request_timeout: float = 10.0, jobs=None,
                 stress=None, now_fn=None) -> ThreadingHTTPServer:
     token = cfg.token.encode()
+    started = psutil.Process().create_time()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"rpidash-agent/{__version__}"
@@ -100,6 +101,7 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
                     "top": top_fn(),
                     "services": services.states(),
                     "uptime_s": time.time() - psutil.boot_time(),
+                    "agent_uptime_s": time.time() - started,
                     "stress": stress.status() if stress else None,
                 })
             rng = parse_qs(url.query).get("range", ["1h"])[0]
@@ -109,12 +111,15 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
 
         def do_POST(self):
             parts = urlsplit(self.path).path.split("/")
-            power = {"reboot": services.reboot, "shutdown": services.poweroff}
-            if len(parts) == 2 and parts[0] == "" and parts[1] in power:
+            power = {"reboot": services.reboot, "shutdown": services.poweroff,
+                     "agent/restart": services.restart_agent}
+            action = "/".join(parts[1:])
+            if parts[0] == "" and action in power:
                 if not self._authed():
                     return
+                # Reply first: each of these takes this process down with it.
                 self._send(202, {"ok": True})
-                threading.Timer(reboot_delay, power[parts[1]]).start()
+                threading.Timer(reboot_delay, power[action]).start()
                 return
             if parts[1:] in (["bench"], ["stress"], ["stress", "stop"]):
                 if not self._authed():

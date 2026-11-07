@@ -533,7 +533,14 @@ function renderLive(p) {
 
   const services = (p.live && p.live.services) || [];
   $("#no-services").hidden = !(p.live && services.length === 0);
-  $("#services tbody").innerHTML = services.map((sv) => `<tr><td>${esc(sv.name)}</td><td class="state-${esc(sv.state)}">${esc(sv.state)}</td>
+  // The agent itself goes first. Only Restart: stopping it would cut the dashboard off from this Pi.
+  // Agents older than 0.2.2 don't report agent_uptime_s and can't restart themselves.
+  const live = p.live;
+  const canRestart = live && typeof live.agent_uptime_s === "number";
+  const agentRow = live ? `<tr class="agent-row"><td>rpidash-agent <span class="muted">${esc(live.version || "")}${canRestart ? ` · up ${esc(duration(live.agent_uptime_s))}` : ""}</span></td>
+    <td class="state-active">active</td>
+    <td class="actions">${canRestart ? `<button class="small" data-agent-restart>Restart</button>` : ""}</td></tr>` : "";
+  $("#services tbody").innerHTML = agentRow + services.map((sv) => `<tr><td>${esc(sv.name)}</td><td class="state-${esc(sv.state)}">${esc(sv.state)}</td>
     <td class="actions">${["start", "stop", "restart"].map((a) => `<button class="small" data-svc="${esc(sv.name)}" data-action="${a}">${a[0].toUpperCase() + a.slice(1)}</button>`).join(" ")}</td></tr>`).join("");
 
   const top = (p.live && p.live.top) || [];
@@ -563,6 +570,15 @@ function detail(id, spec) {
     } catch (e) { toast(`Couldn't refresh: ${e.message}`); }
   };
   $("#services").addEventListener("click", async (e) => {
+    const ra = e.target.closest("button[data-agent-restart]");
+    if (ra) {
+      const name = document.querySelector(".pi-title").textContent.trim();
+      if (!confirm(`Restart the agent on ${name}? It drops offline for a few seconds, its charts start over, and any running stress load or benchmark stops.`)) return;
+      ra.disabled = true;
+      try { await api("POST", `/api/pis/${encodeURIComponent(id)}/agent/restart`); toast(`Restarting the agent on ${name}`); }
+      catch (err) { toast(`Agent restart failed: ${err.message}`); ra.disabled = false; }
+      return;
+    }
     const b = e.target.closest("button[data-svc]");
     if (!b) return;
     const { svc, action } = b.dataset;

@@ -73,7 +73,9 @@ def test_actions(make_client):
     with c:
         assert c.post("/api/pis/A/reboot").status_code == 200
         assert c.post("/api/pis/A/services/user:oled-stats/restart").status_code == 200
-    assert fake.requests[-1].url.raw_path == b"/services/user%3Aoled-stats/restart"
+        assert fake.requests[-1].url.raw_path == b"/services/user%3Aoled-stats/restart"
+        assert c.post("/api/pis/A/agent/restart").status_code == 200
+    assert fake.requests[-1].method == "POST" and fake.requests[-1].url.path == "/agent/restart"
 
 
 def test_service_proxy_403(make_client):

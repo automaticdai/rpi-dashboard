@@ -75,6 +75,9 @@ class AgentClient:
     async def shutdown(self, host: str, port: int | None = None) -> dict:
         return await self._req("POST", host, "/shutdown", port=port)
 
+    async def restart_agent(self, host: str, port: int | None = None) -> dict:
+        return await self._req("POST", host, "/agent/restart", port=port)
+
     async def service_action(self, host: str, entry: str, action: str, port: int | None = None) -> dict:
         return await self._req("POST", host, f"/services/{quote(entry, safe='')}/{quote(action, safe='')}",
                                port=port)

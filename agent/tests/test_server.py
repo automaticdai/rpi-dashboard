@@ -298,3 +298,22 @@ def test_stress_start_failure_is_409(agent):
     base, _, _ = agent
     code, body = call(base + "/stress", "POST", body={"cpu": True, "minutes": 7})
     assert code == 409 and "rpibench" in body["error"]
+
+
+def test_agent_restart_replies_then_restarts(agent):
+    base, _, runner = agent
+    assert call(base + "/agent/restart", "POST", token="wrong")[0] == 401
+    assert runner.calls == []
+    code, body = call(base + "/agent/restart", "POST")
+    assert code == 202 and body == {"ok": True}
+    want = ["systemctl", "--no-block", "restart", "rpidash-agent.service"]
+    deadline = time.time() + 1
+    while time.time() < deadline and want not in runner.calls:
+        time.sleep(0.01)
+    assert want in runner.calls
+
+
+def test_live_reports_agent_process_uptime(agent):
+    base, _, _ = agent
+    up = call(base + "/live")[1]["agent_uptime_s"]
+    assert isinstance(up, (int, float)) and 0 <= up < 3600
