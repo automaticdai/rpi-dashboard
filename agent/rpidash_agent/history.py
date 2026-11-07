@@ -22,7 +22,7 @@ _NAN = float("nan")
 
 
 def _encode(name: str, value):
-    if name == "temp_c":
+    if name in ("temp_c", "power_w"):
         return _NAN if value is None else value
     if name in ("throttled", "fan_rpm"):
         return -1 if value is None else value
@@ -30,7 +30,7 @@ def _encode(name: str, value):
 
 
 def _decode(name: str, value):
-    if name == "temp_c":
+    if name in ("temp_c", "power_w"):
         return None if math.isnan(value) else value
     if name in ("throttled", "fan_rpm"):
         return None if value < 0 else value
@@ -106,6 +106,9 @@ class History:
                 if n == "temp_c":
                     vals = [v for v in sl if not math.isnan(v)]
                     out[n].append(max(vals) if vals else None)
+                elif n == "power_w":
+                    vals = [v for v in sl if not math.isnan(v)]
+                    out[n].append(sum(vals) / len(vals) if vals else None)
                 elif n == "fan_rpm":
                     vals = [v for v in sl if v >= 0]
                     out[n].append(sum(vals) / len(vals) if vals else None)

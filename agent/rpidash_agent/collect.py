@@ -30,6 +30,7 @@ class Sample:
     temp_c: float | None
     throttled: int | None
     fan_rpm: int | None = None
+    power_w: float | None = None  # Pi 5 / CM5 only: sum of the PMIC's measured supply rails
 
 
 FIELDS: tuple[str, ...] = tuple(f.name for f in fields(Sample))
@@ -66,6 +67,15 @@ def read_fan_rpm(root: Path = ROOT) -> int | None:
         except (OSError, ValueError):
             continue
     return max(speeds) if speeds else None
+
+
+def parse_pmic(text: str) -> float | None:
+    """Total power (W) of the rails `vcgencmd pmic_read_adc` reports both a current and a voltage
+    for (Pi 5 / CM5). Loads fed straight from the 5 V input (USB, NVMe, fan) aren't included."""
+    amps = {m[1]: float(m[2]) for m in re.finditer(r"(?m)^\s*(\S+)_A current\(\d+\)=([\d.]+)A", text or "")}
+    volts = {m[1]: float(m[2]) for m in re.finditer(r"(?m)^\s*(\S+)_V volt\(\d+\)=([\d.]+)V", text or "")}
+    rails = [amps[k] * volts[k] for k in amps if k in volts]
+    return sum(rails) if rails else None
 
 
 def parse_throttled(text: str) -> int | None:
@@ -195,6 +205,7 @@ def top_processes(n: int = 10) -> list[dict]:
 class Collector:
     def __init__(self) -> None:
         self._prev_net: tuple[float, int, int] | None = None
+        self._has_pmic: bool | None = None  # learned on the first read
         # CPU % is worked out here from cpu_times() deltas. psutil.cpu_percent(None) keeps its
         # baseline per thread, and the HTTP server answers each request on a new thread.
         self._prev_cpu = self._cpu_counters()
@@ -204,6 +215,14 @@ class Collector:
         t = psutil.cpu_times()
         idle = t.idle + getattr(t, "iowait", 0.0)
         return sum(t), idle
+
+    def read_power(self) -> float | None:
+        if self._has_pmic is False:
+            return None  # this board has no PMIC readout: don't spawn vcgencmd every sample
+        w = parse_pmic(_vcgencmd("pmic_read_adc") or "")
+        if self._has_pmic is None:
+            self._has_pmic = w is not None
+        return w
 
     def cpu_pct(self) -> float:
         total, idle = self._cpu_counters()
@@ -243,4 +262,5 @@ class Collector:
             temp_c=read_temperature(),
             throttled=read_throttled(),
             fan_rpm=read_fan_rpm(),
+            power_w=self.read_power(),
         )

@@ -1,12 +1,15 @@
 import time
 
+import pytest
+
 from rpidash_agent.collect import Sample
 from rpidash_agent.history import History
 
 
-def s(ts, cpu=1.0, temp=40.0, throttled=0, fan=None):
+def s(ts, cpu=1.0, temp=40.0, throttled=0, fan=None, power=None):
     return Sample(ts=float(ts), cpu_pct=cpu, load1=0.1, mem_used=100, mem_total=1000, swap_used=0,
-                  disk_pct=50.0, net_rx_bps=0.0, net_tx_bps=0.0, temp_c=temp, throttled=throttled, fan_rpm=fan)
+                  disk_pct=50.0, net_rx_bps=0.0, net_tx_bps=0.0, temp_c=temp, throttled=throttled, fan_rpm=fan,
+                  power_w=power)
 
 
 def test_empty():
@@ -63,7 +66,7 @@ def test_full_week_memory():
     for i in range(60480):
         h.append(s(i * 10))
     assert len(h) == 60480
-    assert h.nbytes() < 4_000_000
+    assert h.nbytes() < 4_500_000  # ~68 bytes/sample; the binding limit is agent RSS < 50 MB
 
 
 def test_query_speed():
@@ -117,3 +120,11 @@ def test_query_during_append_sees_consistent_data(monkeypatch):
     q = result["q"]
     assert q["ts"] in ([3.0, 4.0, 5.0, 6.0, 7.0], [4.0, 5.0, 6.0, 7.0, 8.0])  # before or after, never a mix
     assert len({len(v) for k, v in q.items() if k != "since"}) == 1
+
+
+def test_power_mean_and_unknown():
+    h = History()
+    h.append(s(0, power=1.5)); h.append(s(1, power=2.5)); h.append(s(2, power=None))
+    assert h.query(3600, now=5)["power_w"] == [pytest.approx(2.0)]
+    h2 = History(); h2.append(s(0))
+    assert h2.query(3600, now=5)["power_w"] == [None] and h2.latest().power_w is None

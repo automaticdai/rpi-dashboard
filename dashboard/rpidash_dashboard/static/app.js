@@ -37,6 +37,8 @@ const pct = (n) => (n == null ? "–" : `${Math.round(n)}%`);
 // Agent data is untrusted: never call number methods on something that might not be a number.
 const fixed = (v, d) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(d) : "–");
 const temp = (n) => (n == null ? "–" : `${fixed(n, 1)}°`);
+const watts = (n) => (typeof n === "number" ? `${fixed(n, n < 10 ? 2 : 1)} W` : "–");
+const POWER_NOTE = "Board power from the Pi's power chip (PMIC): its measured supply rails. Things fed straight from 5 V (USB devices, NVMe, fan) aren't included, so a wall meter reads more.";
 
 function duration(s) {
   if (s == null) return "–";
@@ -155,7 +157,7 @@ function card(p) {
   let body;
   if (s) {
     body = `<div class="bars">${bar("CPU", s.cpu_pct)}${bar("RAM", memPct(s), usedOf(s.mem_used, ramBytes(spec.ram_total || s.mem_total)))}${bar("Disk", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size))}</div>
-      <div class="meta"><span>↓ ${rate(s.net_rx_bps)}</span><span>↑ ${rate(s.net_tx_bps)}</span><span>up ${duration(p.live.uptime_s)}</span></div>`;
+      <div class="meta"><span>↓ ${rate(s.net_rx_bps)}</span><span>↑ ${rate(s.net_tx_bps)}</span><span>up ${duration(p.live.uptime_s)}</span>${typeof s.power_w === "number" ? `<span title="${POWER_NOTE}">${watts(s.power_w)}</span>` : ""}</div>`;
   } else {
     body = `<div class="meta"><span>${esc(spec.os || "")}</span><span>last seen ${ago(p.last_seen)}</span></div>`;
   }
@@ -260,6 +262,7 @@ const TABLE_COLS = [
   }, true],
   ["diskpct", "Disk %", (p) => smp(p).disk_pct, (p) => fixed(smp(p).disk_pct, 0), true],
   ["net", "Network", (p) => smp(p).net_rx_bps, (p) => (p.live ? `↓ ${rate(smp(p).net_rx_bps)} ↑ ${rate(smp(p).net_tx_bps)}` : "–"), true],
+  ["power", "Power", (p) => smp(p).power_w, (p) => (typeof smp(p).power_w === "number" ? `<span title="${POWER_NOTE}">${watts(smp(p).power_w)}</span>` : "–"), true],
   ["fan", "Fan rpm", (p) => smp(p).fan_rpm, (p) => (typeof smp(p).fan_rpm === "number" ? String(smp(p).fan_rpm) : "–"), true],
   ["uptime", "Uptime", (p) => p.live && p.live.uptime_s, (p) => (p.live ? duration(p.live.uptime_s) : "–"), true],
   ["warnings", "Warnings", (p) => p.warnings.length,
@@ -470,6 +473,7 @@ function initCharts() {
   charts.cpu = makeChart("c-cpu", [{ label: "CPU", borderColor: accent }], { min: 0, max: 100 });
   charts.mem = makeChart("c-mem", [{ label: "RAM", borderColor: accent }], { min: 0, max: 100 });
   charts.disk = makeChart("c-disk", [{ label: "Disk", borderColor: accent }], { min: 0, max: 100 });
+  charts.power = makeChart("c-power", [{ label: "W", borderColor: cssVar("--bad") }], { min: 0 });
   charts.fan = makeChart("c-fan", [{ label: "rpm", borderColor: cssVar("--warn") }], { min: 0 });
   charts.net = makeChart("c-net", [{ label: "Download", borderColor: accent }, { label: "Upload", borderColor: ok }], { min: 0, tick: (v) => rate(v) });
 }
@@ -493,6 +497,10 @@ async function loadHistory(id) {
   set(charts.mem, h.mem_used.map((u, i) => (h.mem_total[i] ? (u / h.mem_total[i]) * 100 : null)));
   set(charts.disk, h.disk_pct);
   set(charts.net, h.net_rx_bps, h.net_tx_bps);
+  const power = h.power_w || [];
+  const hasPower = power.some((v) => v != null);
+  set(charts.power, power);
+  $("#power-fig").hidden = !hasPower;
   const fan = h.fan_rpm || [];
   const hasFan = fan.some((v) => v != null);
   set(charts.fan, fan);
@@ -517,6 +525,7 @@ function renderLive(p) {
     ["RAM", `${bytes(s.mem_used)} of ${bytes(s.mem_total)}`], ["Swap", bytes(s.swap_used)], ["Disk", pct(s.disk_pct)],
     ["Network", `↓ ${rate(s.net_rx_bps)}  ↑ ${rate(s.net_tx_bps)}`], ["Uptime", duration(p.live.uptime_s)],
     ["Fan", s.fan_rpm == null ? "No sensor" : `${s.fan_rpm} rpm`],
+    ...(typeof s.power_w === "number" ? [["Board power", watts(s.power_w)]] : []),
     ["Throttling", typeof s.throttled !== "number" ? "Unknown" : s.throttled ? `Yes (0x${s.throttled.toString(16)})` : "None"],
   ] : [["Status", STATUS_TEXT[p.status]], ["Last seen", ago(p.last_seen)]];
   $("#live").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("") +
@@ -715,6 +724,7 @@ const LIVE_METRICS = {
   mem: (s) => (s.mem_total ? (s.mem_used / s.mem_total) * 100 : null),
   temp: (s) => s.temp_c,
   net: (s) => (typeof s.net_rx_bps === "number" ? (s.net_rx_bps * 8) / 1e6 : null),
+  power: (s) => (typeof s.power_w === "number" ? s.power_w : null),
 };
 
 function liveChart(id, opts = {}) {
@@ -742,6 +752,7 @@ function stressPage() {
     mem: liveChart("l-mem", { min: 0, max: 100 }),
     temp: liveChart("l-temp", { suggestedMax: 80 }),
     net: liveChart("l-net", { min: 0 }),
+    power: liveChart("l-power", { min: 0 }),
   };
   const series = {}; // pi id -> {name, colour, points: {cpu: [], ...}}
   let order = [];
@@ -754,7 +765,8 @@ function stressPage() {
       const since = Date.now() - 10 * 60 * 1000;
       h.ts.forEach((t, i) => {
         if (t * 1000 < since) return;
-        const s = { cpu_pct: h.cpu_pct[i], mem_used: h.mem_used[i], mem_total: h.mem_total[i], temp_c: h.temp_c[i], net_rx_bps: h.net_rx_bps[i] };
+        const s = { cpu_pct: h.cpu_pct[i], mem_used: h.mem_used[i], mem_total: h.mem_total[i], temp_c: h.temp_c[i],
+                    net_rx_bps: h.net_rx_bps[i], power_w: (h.power_w || [])[i] };
         for (const [k, f] of Object.entries(LIVE_METRICS)) series[p.id].points[k].push({ x: t * 1000, y: f(s) });
       });
     } catch { /* fine: the line just starts now */ }
@@ -802,7 +814,7 @@ function stressPage() {
       for (const p of pis) {
         if (!series[p.id]) {
           series[p.id] = { name: p.hostname, colour: PI_COLOURS[order.indexOf(p.id) % PI_COLOURS.length],
-                           points: { cpu: [], mem: [], temp: [], net: [] } };
+                           points: { cpu: [], mem: [], temp: [], net: [], power: [] } };
           if (p.status === "online") seed(p);
         }
       }

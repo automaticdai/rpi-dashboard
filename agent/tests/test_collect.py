@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 from collections import namedtuple
 
 import psutil
@@ -135,3 +136,31 @@ def test_storage_type(tmp_path, device, setup, expected):
 
 def test_spec_has_storage_type():
     assert "storage" in read_spec()
+
+
+PMIC = (Path(__file__).parent / "data" / "pmic_read_adc_pi5.txt").read_text()
+
+
+def test_parse_pmic_sums_rail_power():
+    from rpidash_agent.collect import parse_pmic
+    w = parse_pmic(PMIC)
+    assert 0.5 < w < 5.0          # a real Pi 5 at idle: ~1.5 W across its rails
+    text = "  VDD_CORE_A current(7)=2.00000000A\n  VDD_CORE_V volt(15)=0.80000000V\n" \
+           "  3V3_SYS_A current(4)=0.10000000A\n  3V3_SYS_V volt(12)=3.30000000V\n" \
+           "  EXT5V_V volt(24)=5.10000000V\n"   # EXT5V has a voltage but no current: not a rail
+    assert parse_pmic(text) == pytest.approx(2.0 * 0.8 + 0.1 * 3.3)
+    assert parse_pmic("Can't open device file: /dev/vcio") is None
+    assert parse_pmic("") is None
+
+
+def test_read_power_gives_up_on_boards_without_a_pmic(monkeypatch):
+    from rpidash_agent import collect
+    calls = []
+    monkeypatch.setattr(collect, "_vcgencmd", lambda *a: calls.append(a) or "error=1 error_msg=\"Command not registered\"")
+    c = Collector()
+    assert c.read_power() is None and c.read_power() is None
+    assert len(calls) == 1   # not asked again every sample
+
+
+def test_sample_has_power_field():
+    assert "power_w" in collect.FIELDS
