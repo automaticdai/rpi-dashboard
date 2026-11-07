@@ -150,7 +150,8 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             pass
         sample = (live or {}).get("sample")
         return {"id": pi.id, "hostname": pi.hostname, "host": pi.host, "status": status, "live": live,
-                "spec": pi.spec, "warnings": health_warnings(sample, cfg), "last_seen": pi.last_seen}
+                "spec": pi.spec, "last_seen": pi.last_seen,
+                "warnings": health_warnings(sample, cfg, agent_version=(live or {}).get("version"))}
 
     @app.get("/api/pis")
     async def list_pis():

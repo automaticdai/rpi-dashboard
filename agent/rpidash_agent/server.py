@@ -92,6 +92,7 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
                 latest = history.latest()
                 return self._send(200, {
                     "id": id_fn(),
+                    "version": __version__,
                     "sample": asdict(latest) if latest else None,
                     "top": top_fn(),
                     "services": services.states(),

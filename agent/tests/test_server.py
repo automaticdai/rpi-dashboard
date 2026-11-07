@@ -258,3 +258,9 @@ def test_now_returns_a_fresh_sample(agent):
     assert call(base + "/now", token=None)[0] == 401
     code, body = call(base + "/now")
     assert code == 200 and body == {"id": "mid-1", "sample": {"ts": 123.0, "cpu_pct": 42.0}}
+
+
+def test_live_reports_agent_version(agent):
+    from rpidash_agent import __version__
+    base, _, _ = agent
+    assert call(base + "/live")[1]["version"] == __version__

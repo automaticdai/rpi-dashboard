@@ -1,10 +1,13 @@
 """Warning flags for a Pi's latest sample."""
 from __future__ import annotations
 
+from . import EXPECTED_AGENT_VERSION
 from .config import DashboardConfig
 
+_UNCHECKED = object()
 
-def health_warnings(sample: dict | None, cfg: DashboardConfig) -> list[str]:
+
+def health_warnings(sample: dict | None, cfg: DashboardConfig, agent_version=_UNCHECKED) -> list[str]:
     if not sample:
         return []
     out = []
@@ -19,4 +22,7 @@ def health_warnings(sample: dict | None, cfg: DashboardConfig) -> list[str]:
         out.append("mem")
     if sample.get("throttled"):
         out.append("throttled")
+    # Agents older than 0.2.0 don't report a version at all (None): also out of date.
+    if agent_version is not _UNCHECKED and agent_version != EXPECTED_AGENT_VERSION:
+        out.append("agent_outdated")
     return out

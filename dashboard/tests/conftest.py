@@ -5,6 +5,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from rpidash_dashboard import EXPECTED_AGENT_VERSION
 from rpidash_dashboard.app import create_app
 from rpidash_dashboard.client import AgentClient
 from rpidash_dashboard.config import DashboardConfig
@@ -65,7 +66,7 @@ class FakeAgents:
         if p == "/spec":
             return httpx.Response(200, json={"model": "Raspberry Pi 3"})
         if p == "/live":
-            return httpx.Response(200, json={"id": self.agent_id(req.url.host), "sample": SAMPLE, "top": [], "services": [], "uptime_s": 5})
+            return httpx.Response(200, json={"id": self.agent_id(req.url.host), "version": EXPECTED_AGENT_VERSION, "sample": SAMPLE, "top": [], "services": [], "uptime_s": 5})
         if p == "/history":
             return httpx.Response(200, json={"since": 0, "ts": [1.0], "cpu_pct": [5.0]})
         return httpx.Response(200, json={"ok": True, "output": ""})

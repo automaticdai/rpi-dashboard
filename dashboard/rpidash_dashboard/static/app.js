@@ -95,7 +95,9 @@ function hardwareLine(spec, s) {
   return parts.join(", ");
 }
 
-const WARN_TEXT = { hot: "Running hot", disk: "Disk nearly full", mem: "RAM nearly full", throttled: "Throttled or under-voltage" };
+const WARN_TEXT = { hot: "Running hot", disk: "Disk nearly full", mem: "RAM nearly full", throttled: "Throttled or under-voltage",
+                    agent_outdated: "Agent out of date" };
+const WARN_LEVEL = (w) => (w === "hot" || w === "throttled" ? "bad" : "warn");
 const STATUS_TEXT = { online: "Online", offline: "Offline", auth_failed: "Token rejected" };
 
 // ---------- overview ----------
@@ -121,7 +123,7 @@ function card(p) {
   } else {
     body = `<div class="meta"><span>${esc(spec.os || "")}</span><span>last seen ${ago(p.last_seen)}</span></div>`;
   }
-  const chips = p.warnings.map((w) => `<span class="chip ${w === "disk" || w === "mem" ? "warn" : "bad"}">${WARN_TEXT[w] || esc(w)}</span>`);
+  const chips = p.warnings.map((w) => `<span class="chip ${WARN_LEVEL(w)}">${WARN_TEXT[w] || esc(w)}</span>`);
   const stressing = p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => k.toUpperCase()) : [];
   if (stressing.length) chips.unshift(`<span class="chip warn">Stress running: ${stressing.join(", ")}</span>`);
   if (p.status !== "online") chips.unshift(`<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span>`);
@@ -166,7 +168,7 @@ function listRow(p) {
   el.draggable = true;
   const h = s && heat(s.temp_c);
   if (h) el.style.setProperty("--heat", h);
-  const chips = p.warnings.map((w) => `<span class="chip ${w === "disk" || w === "mem" ? "warn" : "bad"}">${WARN_TEXT[w] || esc(w)}</span>`);
+  const chips = p.warnings.map((w) => `<span class="chip ${WARN_LEVEL(w)}">${WARN_TEXT[w] || esc(w)}</span>`);
   const stressing = p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => k.toUpperCase()) : [];
   if (stressing.length) chips.unshift(`<span class="chip warn">Stress: ${stressing.join(", ")}</span>`);
   const status = p.status === "online" ? (chips.length ? chips.join("") : `<span class="muted">OK</span>`)
