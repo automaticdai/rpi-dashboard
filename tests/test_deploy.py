@@ -96,3 +96,32 @@ def test_wrong_version_after_install_is_a_failure(env):
 def test_bad_service_list_rejected_before_touching_any_pi(env):
     r, log = deploy(env, "--services", "evil';reboot", "rpi-a")
     assert r.returncode == 2 and log == []
+
+
+def test_rotate_token_pushes_new_token_then_switches_desktop(env, tmp_path):
+    dash = tmp_path / "dashboard.toml"
+    dash.write_text('token = "' + "t" * 32 + '"\nsubnet = "192.168.0.0/24"\n')
+    r, log = deploy(env, "--rotate-token", RPIDASH_DASHBOARD_CONFIG=str(dash))
+    assert r.returncode == 0, r.stdout + r.stderr
+    scp = [l for l in log if l.startswith("scp")]
+    assert len(scp) == 2 and all("token.new" in l and "~/rpidash-agent/token" in l for l in scp)
+    assert sum("RPIDASH_ROTATE=1" in l and "install.sh" in l for l in log) == 2
+    token_file = Path(env["RPIDASH_TOKEN_FILE"])
+    new = token_file.read_text().strip()
+    assert new != "t" * 32 and len(new) >= 32
+    assert Path(str(token_file) + ".old").read_text().strip() == "t" * 32
+    assert not Path(str(token_file) + ".new").exists()
+    assert f'token = "{new}"' in dash.read_text() and 'subnet = "192.168.0.0/24"' in dash.read_text()
+    assert new not in "\n".join(log)  # never on a command line
+    assert "restart the dashboard" in r.stdout.lower()
+
+
+def test_rotate_token_partial_failure_keeps_new_token_pending(env, tmp_path):
+    r, _ = deploy(env, "--rotate-token", STUB_INSTALL_FAILS="rpi-b")
+    token_file = Path(env["RPIDASH_TOKEN_FILE"])
+    assert r.returncode == 1
+    assert token_file.read_text().strip() == "t" * 32  # desktop not switched yet
+    pending = Path(str(token_file) + ".new").read_text().strip()
+    r2, log2 = deploy(env, "--rotate-token", "rpi-b")  # retry reuses the same new token
+    assert r2.returncode == 0
+    assert token_file.read_text().strip() == pending

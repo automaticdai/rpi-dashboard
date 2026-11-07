@@ -10,6 +10,8 @@ import json
 import os
 import re
 import sys
+import tempfile
+import tomllib
 from pathlib import Path
 
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_\-.~+/=]{16,}$")
@@ -27,11 +29,16 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--services", default="", help="comma-separated allowlist")
     p.add_argument("--user", default="yfrl", help="owner of user:<unit> services")
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--update-token", action="store_true",
+                   help="replace only the token in an existing config, keeping everything else")
     args = p.parse_args(argv)
 
     token = args.token_file.read_text().strip()
     if not TOKEN_RE.match(token):
         _fail("token must be at least 16 characters of letters, digits or -_.~+/=")
+    if args.update_token:
+        _update_token(args.out, token)
+        return
     services = [s.strip() for s in args.services.split(",") if s.strip()]
     for s in services:
         if not SERVICE_RE.match(s):
@@ -48,6 +55,35 @@ def main(argv: list[str] | None = None) -> None:
     with os.fdopen(fd, "w") as f:
         f.write(text)
     print(f"wrote {args.out}")
+
+
+def _toml_value(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    if isinstance(v, str) or (isinstance(v, list) and all(isinstance(x, str) for x in v)):
+        return json.dumps(v)  # a valid TOML basic string / array of strings
+    _fail(f"can't rewrite config value {v!r}")
+
+
+def _update_token(out: Path, token: str) -> None:
+    if not out.exists():
+        _fail(f"{out} doesn't exist; nothing to update")
+    with open(out, "rb") as f:
+        data = tomllib.load(f)
+    data["token"] = token
+    text = "".join(f"{k} = {_toml_value(v)}\n" for k, v in data.items())
+    fd, tmp = tempfile.mkstemp(dir=out.parent, prefix=".rpidash-agent.", suffix=".toml")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, out)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+    print(f"updated the token in {out}")
 
 
 if __name__ == "__main__":

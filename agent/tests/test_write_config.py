@@ -52,3 +52,34 @@ def test_refuses_to_overwrite(tmp_path):
     out = run(tmp_path)
     with pytest.raises(SystemExit):
         main(["--token-file", str(tmp_path / "token"), "--services", "", "--user", "yfrl", "--out", str(out)])
+
+
+NEW = "New_token-abcdefghijklmnopqrstuvwxyz0123"
+
+
+def update(tmp_path, out, token=NEW):
+    tf = tmp_path / "newtoken"
+    tf.write_text(token + "\n")
+    main(["--token-file", str(tf), "--update-token", "--out", str(out)])
+
+
+def test_update_token_keeps_everything_else(tmp_path):
+    out = run(tmp_path)
+    with open(out, "a") as f:
+        f.write('interval = 5\n'.replace("interval = 5", 'state_dir = "/var/lib/x"'))
+    update(tmp_path, out)
+    cfg = load_config(out)
+    assert cfg.token == NEW
+    assert cfg.services_allowlist == ["cpu-performance", "user:oled-stats"] and cfg.service_user == "yfrl"
+    assert str(cfg.state_dir) == "/var/lib/x"
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+
+
+def test_update_token_needs_existing_config_and_valid_token(tmp_path):
+    with pytest.raises(SystemExit):
+        update(tmp_path, tmp_path / "missing.toml")
+    out = run(tmp_path)
+    before = out.read_text()
+    with pytest.raises(SystemExit):
+        update(tmp_path, out, token='bad"token' + "x" * 20)
+    assert out.read_text() == before

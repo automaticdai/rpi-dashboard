@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Install or upgrade the rpi-dashboard agent. Run as root from the agent/ directory.
 # First install: copy the token into this directory as a file named `token` (it is deleted
-# afterwards), then:
+# afterwards). To change the token later, do the same with the new one and set RPIDASH_ROTATE=1.
+# Then:
 #   sudo RPIDASH_SERVICES="cpu-performance,user:oled-stats" ./install.sh
 # The token is read from that file, never from the command line, so it stays out of `ps`
 # and the sudo log. Safe to re-run: an existing /etc/rpidash-agent.toml is kept.
@@ -41,7 +42,10 @@ else
 fi
 
 TOKEN_FILE="${RPIDASH_TOKEN_FILE:-$SRC/token}"
-if [[ ! -f $CONF ]]; then
+if [[ -f $CONF && ${RPIDASH_ROTATE:-} == 1 ]]; then
+  [[ -f $TOKEN_FILE ]] || { echo "token rotation needs the new token in $TOKEN_FILE" >&2; exit 1; }
+  "$PREFIX/venv/bin/python" -m rpidash_agent.write_config --update-token --token-file "$TOKEN_FILE" --out "$CONF"
+elif [[ ! -f $CONF ]]; then
   if [[ ! -f $TOKEN_FILE ]]; then
     echo "first install needs the token: copy it to $TOKEN_FILE (or set RPIDASH_TOKEN_FILE)" >&2
     exit 1
