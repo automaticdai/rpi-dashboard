@@ -354,3 +354,37 @@ def test_spec_refreshed_when_agent_version_changes(make_client):
         fake.spec = {"model": "Pi", "agent_version": "0.2.0", "storage": "SD"}  # upgraded, never offline
         c.get("/api/pis")                                         # /live says 0.2.0 != stored 0.1.0
     assert reg.get("A").spec.get("storage") == "SD"
+
+
+def test_bulk_reboot_reports_per_pi(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok", "10.0.0.2": "down", "10.0.0.3": "ok"},
+                             pis=[make_pi("A", "10.0.0.1"), make_pi("B", "10.0.0.2"), make_pi("C", "10.0.0.3")],
+                             ids={"10.0.0.3": "someone-else"})
+    with c:
+        r = c.post("/api/actions", json={"ids": ["A", "B", "C", "Z"], "action": "reboot"})
+    assert r.status_code == 200
+    res = r.json()
+    assert res["A"] == {"ok": True}
+    assert "unreachable" in res["B"]["error"]
+    assert "now belongs to" in res["C"]["error"]           # identity check still applies
+    assert res["Z"] == {"error": "unknown Pi"}
+    assert [x.url.host for x in fake.requests if x.method == "POST"] == ["10.0.0.1"]
+
+
+def test_bulk_shutdown(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok", "10.0.0.2": "ok"},
+                             pis=[make_pi("A", "10.0.0.1"), make_pi("B", "10.0.0.2")])
+    with c:
+        res = c.post("/api/actions", json={"ids": ["A", "B"], "action": "shutdown"}).json()
+    assert res == {"A": {"ok": True}, "B": {"ok": True}}
+    assert sorted(x.url.path for x in fake.requests if x.method == "POST") == ["/shutdown", "/shutdown"]
+
+
+def test_bulk_action_validation_and_cross_site(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        assert c.post("/api/actions", json={"ids": ["A"], "action": "format"}).status_code == 400
+        assert c.post("/api/actions", json={"ids": [], "action": "reboot"}).status_code == 400
+        assert c.post("/api/actions", json={"ids": ["A"], "action": "reboot"},
+                      headers={"Origin": "http://evil.example"}).status_code == 403
+    assert not [x for x in fake.requests if x.method == "POST"]

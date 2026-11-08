@@ -19,7 +19,8 @@ Switch the overview between three views (top right); your choice is remembered.
   a third time to go back to your own order).
 
 Drag a card or row (or focus its ⠿ handle and use the arrow keys) to reorder; the order is
-saved. A Pi whose agent is older than the dashboard shows **Agent out of date**.
+saved. Tick Pis (or **Select all**) to **Reboot**, **Shut down** or **Run benchmarks** on all of
+them at once; each Pi is still checked to be the same Pi before anything happens to it. A Pi whose agent is older than the dashboard shows **Agent out of date**.
 
 ![Overview in Cards view: one card per Pi with its board, OS, cores and disk type, temperature, CPU, RAM and disk, and a coloured edge from green (cool) to red (hot)](docs/screenshots/overview.png)
 

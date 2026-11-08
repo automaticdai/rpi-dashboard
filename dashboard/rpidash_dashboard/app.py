@@ -44,6 +44,11 @@ class BenchRound(BaseModel):
     tests: list[str]
 
 
+class BulkAction(BaseModel):
+    ids: list[str]
+    action: str
+
+
 class StressRequest(BaseModel):
     cpu: bool = False
     ram: bool = False
@@ -356,6 +361,26 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     async def restart_agent(pi_id: str):
         pi = await verified_pi(pi_id)
         return await agent_call(agents.restart_agent(pi.host, pi.port))
+
+    @app.post("/api/actions")
+    async def bulk_action(body: BulkAction):
+        """Reboot or shut down several Pis at once; each still gets the same-Pi check."""
+        do = {"reboot": agents.reboot, "shutdown": agents.shutdown}.get(body.action)
+        if do is None or not body.ids:
+            raise HTTPException(400, "choose at least one Pi and an action: reboot or shutdown")
+
+        async def one(pi_id: str) -> dict:
+            if registry.get(pi_id) is None:
+                return {"error": "unknown Pi"}
+            try:
+                pi = await verified_pi(pi_id)
+                await agent_call(do(pi.host, pi.port))
+            except HTTPException as e:
+                return {"error": str(e.detail)}
+            return {"ok": True}
+
+        ids = list(dict.fromkeys(body.ids))
+        return dict(zip(ids, await asyncio.gather(*(one(i) for i in ids))))
 
     @app.post("/api/pis/{pi_id}/services/{entry}/{action}")
     async def service_action(pi_id: str, entry: str, action: str):

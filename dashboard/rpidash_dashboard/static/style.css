@@ -117,12 +117,21 @@ main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 .dot.auth_failed { background: var(--bad); }
 
 /* Overview: Cards / List switch and list rows (list rows are .card elements too, so drag works) */
-.view-bar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.view-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 12px; }
+.view-bar .seg { margin-left: auto; }
+.select-all { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; }
+.bulk-bar[hidden] { display: none; }
+#bulk-count { font-weight: 600; margin-right: 4px; }
+input.pick { position: relative; z-index: 1; width: 1.05rem; height: 1.05rem; margin: 0 6px 0 0; accent-color: var(--accent); cursor: pointer; }
+.cell.pickcell { display: flex; align-items: center; gap: 2px; }
+th.pickcol, td.pickcol { width: 1.6rem; padding-right: 0 !important; }
 .list-head, .card.row {
   display: grid; align-items: center; gap: 12px;
   /* Column sizes never depend on a row's content, so the heading and every row line up even
      when one row has a long warning chip. Cells that run out of room wrap instead. */
-  grid-template-columns: 1.4rem minmax(0, 2.3fr) 4.2rem minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1fr) 7rem 4.5rem minmax(0, 1fr) 5.2rem;
+  grid-template-columns: 2.8rem minmax(0, 2.3fr) 4.2rem minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1fr) 7rem 4.5rem minmax(0, 1fr) 5.2rem;
 }
 .list-head > *, .card.row > * { min-width: 0; }
 .list-head { padding: 0 17px 6px 25px; color: var(--muted); font-size: .85rem; } /* + the rows' 1px border */
@@ -227,7 +236,7 @@ td.stale { color: var(--off); text-decoration: line-through; text-decoration-thi
 
 @media (max-width: 1100px) {
   .list-head { display: none; }
-  .card.row { grid-template-columns: 1.4rem 1fr auto; row-gap: 6px; }
+  .card.row { grid-template-columns: 2.8rem 1fr auto; row-gap: 6px; }
   .card.row .name { grid-column: 2; }
   .card.row .temp { grid-column: 3; grid-row: 1; }
   .card.row .cell.usage, .card.row .cell.net, .card.row .cell.uptime, .card.row .cell.status { grid-column: 2 / 4; }

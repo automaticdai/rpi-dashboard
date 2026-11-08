@@ -11,6 +11,14 @@
 {% block main %}
 <section id="scan-results" hidden></section>
 <div class="view-bar">
+  <label class="select-all"><input type="checkbox" id="select-all"> Select all</label>
+  <div id="bulk-bar" class="bulk-bar" hidden role="region" aria-label="Actions for the selected Pis">
+    <span id="bulk-count"></span>
+    <button type="button" class="danger" data-bulk="reboot">Reboot</button>
+    <button type="button" class="danger" data-bulk="shutdown">Shut down</button>
+    <button type="button" class="quiet" data-bulk="bench">Run benchmarks</button>
+    <button type="button" class="quiet" data-bulk="clear">Clear</button>
+  </div>
   <div class="seg" role="group" aria-label="Show Pis as">
     <button type="button" data-layout="cards" aria-pressed="true">Cards</button><button type="button" data-layout="list" aria-pressed="false">List</button><button type="button" data-layout="table" aria-pressed="false">Table</button>
   </div>

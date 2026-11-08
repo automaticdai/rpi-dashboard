@@ -166,7 +166,7 @@ function card(p) {
   if (stressing.length) chips.unshift(`<span class="chip warn">Stress running: ${stressing.join(", ")}</span>`);
   if (p.status !== "online") chips.unshift(`<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span>`);
   el.innerHTML = `
-    <div class="card-head"><span class="dot ${p.status}"></span><h2><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a></h2>
+    <div class="card-head">${pick(p)}<span class="dot ${p.status}"></span><h2><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a></h2>
       <span class="temp">${s ? temp(s.temp_c) : ""}</span>
       <button class="grip" aria-label="Move ${esc(p.hostname)} (drag, or use arrow keys)" title="Drag to reorder">⠿</button></div>
     <div class="model" title="${esc([spec.model, hardwareLine(spec, s)].filter(Boolean).join(" – "))}">${esc(cardSubtitle(spec, p.host))}</div>
@@ -181,6 +181,51 @@ function card(p) {
     refreshOverview();
   });
   return el;
+}
+
+// ---------- selection for actions on several Pis ----------
+const selected = new Set();
+const pick = (p) => `<input type="checkbox" class="pick" data-id="${esc(p.id)}" aria-label="Select ${esc(p.hostname)}" ${selected.has(p.id) ? "checked" : ""}>`;
+
+function updateBulkBar() {
+  const known = new Set((lastPis || []).map((p) => p.id));
+  for (const id of [...selected]) if (!known.has(id)) selected.delete(id);
+  const n = selected.size;
+  $("#bulk-bar").hidden = n === 0;
+  $("#bulk-count").textContent = `${n} selected`;
+  const all = $("#select-all");
+  all.checked = n > 0 && n === known.size;
+  all.indeterminate = n > 0 && n < known.size;
+}
+
+function selectedNames() {
+  return (lastPis || []).filter((p) => selected.has(p.id)).map((p) => p.hostname);
+}
+
+async function runBulk(kind) {
+  const ids = [...selected], names = selectedNames();
+  if (kind === "clear") { selected.clear(); renderPis(lastPis || []); return; }
+  if (kind === "bench") {
+    try {
+      const res = await api("POST", "/api/bench", { ids, tests: ["cpu", "disk"] });
+      const failed = Object.entries(res).filter(([, r]) => r.error);
+      if (failed.length) toast(`Couldn't start on ${failed.length}: ${failed[0][1].error}`);
+    } catch (e) { toast(`Couldn't start benchmarks: ${e.message}`); return; }
+    location.href = "/bench";
+    return;
+  }
+  const verb = kind === "reboot" ? "Reboot" : "Shut down";
+  const warn = kind === "reboot" ? "They'll be offline for about a minute and their history restarts."
+    : "They stay off until someone reconnects their power; the dashboard can't turn them back on.";
+  if (!confirm(`${verb} ${names.length} Pi${names.length === 1 ? "" : "s"}: ${names.join(", ")}?\n\n${warn}`)) return;
+  let res;
+  try { res = await api("POST", "/api/actions", { ids, action: kind }); } catch (e) { toast(`${verb} failed: ${e.message}`); return; }
+  const name = Object.fromEntries((lastPis || []).map((p) => [p.id, p.hostname]));
+  const ok = Object.entries(res).filter(([, r]) => r.ok).map(([id]) => name[id] || id);
+  const bad = Object.entries(res).filter(([, r]) => r.error).map(([id, r]) => `${name[id] || id}: ${r.error}`);
+  toast(`${verb}: ${ok.length ? ok.join(", ") : "none"}${bad.length ? `. Failed: ${bad.join("; ")}` : ""}`);
+  selected.clear();
+  refreshOverview();
 }
 
 // ---------- list view ----------
@@ -211,7 +256,7 @@ function listRow(p) {
   const status = p.status === "online" ? (chips.length ? chips.join("") : `<span class="muted">OK</span>`)
     : `<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span> <span class="muted">seen ${ago(p.last_seen)}</span>`;
   el.innerHTML = `
-    <button class="grip" aria-label="Move ${esc(p.hostname)} (drag, or use arrow keys)" title="Drag to reorder">⠿</button>
+    <span class="cell pickcell"><button class="grip" aria-label="Move ${esc(p.hostname)} (drag, or use arrow keys)" title="Drag to reorder">⠿</button>${pick(p)}</span>
     <span class="cell name"><span class="dot ${p.status}"></span><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a>
       <span class="sub">${esc(spec.model || p.host)}<br>${esc(hardwareLine(spec, s))}</span></span>
     <span class="cell temp num">${s ? temp(s.temp_c) : "–"}</span>
@@ -287,11 +332,11 @@ function pisTable(pis) {
   }) : pis;
   const wrap = document.createElement("div");
   wrap.className = "table-scroll";
-  wrap.innerHTML = `<table class="pis-table"><thead><tr>${TABLE_COLS.map(([k, label, , , num]) => {
+  wrap.innerHTML = `<table class="pis-table"><thead><tr><th class="pickcol"><span class="sr">Select</span></th>${TABLE_COLS.map(([k, label, , , num]) => {
     const sorted = tableSort.key === k ? (tableSort.dir > 0 ? "ascending" : "descending") : "none";
     const arrow = sorted === "ascending" ? " ▲" : sorted === "descending" ? " ▼" : "";
     return `<th scope="col" class="${num ? "num" : ""}" aria-sort="${sorted}"><button class="sort" data-key="${k}">${label}${arrow}</button></th>`;
-  }).join("")}</tr></thead><tbody>${rows.map((p) => `<tr class="${p.status}">${TABLE_COLS.map(([k, , , cell, num], i) =>
+  }).join("")}</tr></thead><tbody>${rows.map((p) => `<tr class="${p.status}"><td class="pickcol">${pick(p)}</td>${TABLE_COLS.map(([k, , , cell, num], i) =>
     i === 0 ? `<th scope="row">${cell(p)}</th>` : `<td class="${num ? "num" : ""}">${cell(p)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   wrap.querySelectorAll("button.sort").forEach((b) => b.addEventListener("click", () => {
     const k = b.dataset.key;
@@ -388,6 +433,7 @@ function renderPis(pis) {
     document.activeElement.closest(".card").dataset.id;
   if (layout === "table") grid.replaceChildren(pisTable(pis));
   else grid.replaceChildren(...pis.map(layout === "list" ? listRow : card));
+  updateBulkBar();
   if (focusedGrip) grid.querySelector(`.card[data-id="${CSS.escape(focusedGrip)}"] .grip`)?.focus();
   $("#empty").hidden = pis.length > 0;
   const online = pis.filter((p) => p.status === "online").length;
@@ -432,6 +478,19 @@ function overview() {
   });
   setupReorder();
   applyLayout();
+  $("#pis").addEventListener("change", (e) => {
+    const box = e.target.closest("input.pick");
+    if (!box) return;
+    box.checked ? selected.add(box.dataset.id) : selected.delete(box.dataset.id);
+    updateBulkBar();
+  });
+  $("#pis").addEventListener("click", (e) => { if (e.target.closest("input.pick")) e.stopPropagation(); });
+  $("#select-all").addEventListener("change", (e) => {
+    selected.clear();
+    if (e.target.checked) for (const p of lastPis || []) selected.add(p.id);
+    renderPis(lastPis || []);
+  });
+  document.querySelectorAll("#bulk-bar button").forEach((b) => b.addEventListener("click", () => runBulk(b.dataset.bulk)));
   document.querySelectorAll(".view-bar .seg button").forEach((b) => b.addEventListener("click", () => {
     layout = b.dataset.layout;
     try { localStorage.setItem("overviewLayout", layout); } catch { /* fine */ }
