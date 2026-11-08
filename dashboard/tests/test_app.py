@@ -388,3 +388,28 @@ def test_bulk_action_validation_and_cross_site(make_client):
         assert c.post("/api/actions", json={"ids": ["A"], "action": "reboot"},
                       headers={"Origin": "http://evil.example"}).status_code == 403
     assert not [x for x in fake.requests if x.method == "POST"]
+
+
+def test_weak_wifi_and_storage_warnings(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    fake.link = {"interface": "wlan0", "kind": "Wi-Fi", "signal_dbm": -72}
+    fake.storage_warnings = ["storage_errors"]
+    with c:
+        row = c.get("/api/pis").json()[0]
+    assert set(row["warnings"]) == {"wifi_weak", "storage_errors"}
+    assert row["live"]["link"]["signal_dbm"] == -72
+
+
+def test_storage_and_peripherals_proxy(make_client):
+    c, _, _ = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        assert c.get("/api/pis/A/storage").json()["device"] == "/dev/mmcblk0p2"
+        assert c.get("/api/pis/A/peripherals").json()["displays"][0]["name"] == "DSI-1"
+        assert c.get("/api/pis/Z/storage").status_code == 404
+
+
+def test_mem_benchmark_accepted(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
+    with c:
+        assert c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu", "mem"]}).json() == {"A": {"started": True}}
+    assert fake.posted[-1] == ("/bench", {"tests": ["cpu", "mem"]})

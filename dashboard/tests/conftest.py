@@ -33,6 +33,9 @@ class FakeAgents:
         self.bench_busy = False
         self.next_job = 1
         self.spec = {"model": "Raspberry Pi 3"}
+        self.uptime = 5.0
+        self.link = {"interface": "wlan0", "kind": "Wi-Fi", "signal_dbm": -50}
+        self.storage_warnings = []
 
     def agent_id(self, host):
         return self.ids.get(host, "ID-" + host)
@@ -62,6 +65,10 @@ class FakeAgents:
         if p == "/bench":
             st = self.bench_status.get(req.url.host, {"state": "idle"})
             return httpx.Response(200, json={"id": self.agent_id(req.url.host), **st})
+        if p == "/storage":
+            return httpx.Response(200, json={"device": "/dev/mmcblk0p2", "io_errors": 0, "read_only": False})
+        if p == "/peripherals":
+            return httpx.Response(200, json={"displays": [{"name": "DSI-1", "connected": True}], "cameras": [], "i2c": [], "usb": []})
         if p == "/now":
             return httpx.Response(200, json={"id": self.agent_id(req.url.host), "sample": SAMPLE})
         if p == "/health":
@@ -70,7 +77,9 @@ class FakeAgents:
         if p == "/spec":
             return httpx.Response(200, json=self.spec)
         if p == "/live":
-            return httpx.Response(200, json={"id": self.agent_id(req.url.host), "version": EXPECTED_AGENT_VERSION, "sample": SAMPLE, "top": [], "services": [], "uptime_s": 5})
+            return httpx.Response(200, json={"id": self.agent_id(req.url.host), "version": EXPECTED_AGENT_VERSION, "sample": SAMPLE, "top": [], "services": [],
+                                             "uptime_s": self.uptime, "link": self.link,
+                                             "storage_warnings": self.storage_warnings})
         if p == "/history":
             return httpx.Response(200, json={"since": 0, "ts": [1.0], "cpu_pct": [5.0]})
         return httpx.Response(200, json={"ok": True, "output": ""})

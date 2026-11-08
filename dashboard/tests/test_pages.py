@@ -59,3 +59,11 @@ def test_overview_has_cards_list_switch(make_client):
         r = c.get("/")
     assert 'data-layout="cards"' in r.text and 'data-layout="list"' in r.text and 'id="list-head"' in r.text
     assert 'data-layout="table"' in r.text
+
+
+def test_events_tab(make_client):
+    c, _, _ = make_client({})
+    with c:
+        r = c.get("/events")
+        assert r.status_code == 200 and 'id="events-summary"' in r.text and 'id="timeline"' in r.text
+        assert 'href="/events"' in c.get("/").text

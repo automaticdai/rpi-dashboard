@@ -195,8 +195,9 @@ table.bench thead th { font-weight: 600; text-align: right; vertical-align: bott
 table.bench thead th:first-child, table.bench tbody th { text-align: left; }
 table.bench tr.groups th { text-align: center; color: var(--muted); font-weight: 500; border-bottom: 0; padding-bottom: 0; }
 table.bench tbody tr:last-child th, table.bench tbody tr:last-child td { border-bottom: 0; }
-table.bench td:nth-child(2), table.bench td:nth-child(6),
-table.bench thead tr:last-child th:nth-child(2), table.bench thead tr:last-child th:nth-child(6) { border-left: 1px solid var(--line); }
+table.bench td:nth-child(2), table.bench td:nth-child(6), table.bench td:nth-child(8),
+table.bench thead tr:last-child th:nth-child(2), table.bench thead tr:last-child th:nth-child(6),
+table.bench thead tr:last-child th:nth-child(8) { border-left: 1px solid var(--line); }
 .unit { color: var(--off); font-size: .8rem; font-weight: 400; }
 td.best { font-weight: 700; }
 td.empty { color: var(--off); }
@@ -255,3 +256,9 @@ td.stale { color: var(--off); text-decoration: line-through; text-decoration-thi
   .charts { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+
+/* Events */
+.when { white-space: nowrap; color: var(--muted); }
+tr.ev-offline td:last-child { color: var(--bad); }
+tr.ev-network td:last-child { color: var(--warn); }
+.events-summary td.num, .events-summary th.num { text-align: right; }

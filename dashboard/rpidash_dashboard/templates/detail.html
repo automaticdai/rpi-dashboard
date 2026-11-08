@@ -27,6 +27,19 @@
     <h2>Hardware</h2>
     <table id="spec" class="table"><tbody></tbody></table>
   </section>
+  <section class="panel">
+    <h2>Storage health</h2>
+    <table id="storage" class="table"><tbody><tr><td class="muted">Checking…</td></tr></tbody></table>
+  </section>
+  <section class="panel">
+    <h2>Peripherals</h2>
+    <table id="peripherals" class="table"><tbody><tr><td class="muted">Checking…</td></tr></tbody></table>
+  </section>
+  <section class="panel">
+    <h2>Recent events</h2>
+    <table id="pi-events" class="table"><tbody></tbody></table>
+    <p id="no-events" class="muted" hidden>Nothing in the last 30 days. Events are recorded while the dashboard runs.</p>
+  </section>
 </div>
 <section class="history">
   <div class="history-head">
@@ -42,6 +55,7 @@
     <figure><figcaption>RAM %</figcaption><canvas id="c-mem"></canvas></figure>
     <figure><figcaption>Disk %</figcaption><canvas id="c-disk"></canvas></figure>
     <figure><figcaption>Network</figcaption><canvas id="c-net"></canvas></figure>
+    <figure id="wifi-fig" hidden><figcaption>Wi-Fi signal dBm (closer to 0 is better; −70 and below is weak)</figcaption><canvas id="c-wifi"></canvas></figure>
     <figure id="power-fig" hidden><figcaption title="Board power from the Pi's power chip (PMIC); USB devices, NVMe and fan on 5 V aren't included.">Board power W</figcaption><canvas id="c-power"></canvas></figure>
     <figure><figcaption>Fan rpm</figcaption><canvas id="c-fan"></canvas><p id="no-fan" class="muted" hidden>This Pi has no fan speed sensor.</p></figure>
   </div>

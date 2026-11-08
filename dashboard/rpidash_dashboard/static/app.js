@@ -133,9 +133,11 @@ function hardwareLine(spec, s) {
 }
 
 const WARN_TEXT = { hot: "Running hot", disk: "Disk nearly full", mem: "RAM nearly full", throttled: "Throttled or under-voltage",
-                    agent_outdated: "Agent out of date" };
-const WARN_SHORT = { hot: "Hot", disk: "Disk", mem: "RAM", throttled: "Throttled", agent_outdated: "Old agent" };
-const WARN_LEVEL = (w) => (w === "hot" || w === "throttled" ? "bad" : "warn");
+                    agent_outdated: "Agent out of date", wifi_weak: "Weak Wi-Fi", storage_readonly: "Disk read-only",
+                    storage_errors: "Disk errors", storage_worn: "Disk wearing out" };
+const WARN_SHORT = { hot: "Hot", disk: "Disk", mem: "RAM", throttled: "Throttled", agent_outdated: "Old agent",
+                     wifi_weak: "Weak Wi-Fi", storage_readonly: "Read-only", storage_errors: "Disk errors", storage_worn: "Worn" };
+const WARN_LEVEL = (w) => (["hot", "throttled", "storage_readonly", "storage_errors"].includes(w) ? "bad" : "warn");
 const STATUS_TEXT = { online: "Online", offline: "Offline", auth_failed: "Token rejected" };
 
 // ---------- overview ----------
@@ -503,6 +505,56 @@ function overview() {
 }
 
 // ---------- detail ----------
+function signalWord(dbm) {
+  return dbm >= -55 ? "excellent" : dbm >= -65 ? "good" : dbm >= -70 ? "fair" : "weak";
+}
+
+function linkText(link) {
+  if (!link || !link.interface) return "No default route";
+  if (link.kind === "Wi-Fi") {
+    return typeof link.signal_dbm === "number"
+      ? `Wi-Fi (${link.interface}), ${link.signal_dbm} dBm, ${signalWord(link.signal_dbm)}` : `Wi-Fi (${link.interface})`;
+  }
+  return `${link.kind || "Wired"} (${link.interface})${link.speed_mbps ? `, ${link.speed_mbps} Mbit/s` : ""}`;
+}
+
+function renderStorage(h) {
+  if (!h) return;
+  const rows = [["Device", h.device || "–"],
+    ["Mounted", h.read_only == null ? "–" : h.read_only ? "Read-only (the system can't save changes)" : "Read-write"],
+    ["Kernel I/O errors", h.io_errors == null ? "–" : h.io_errors === 0 ? "None this boot" : `${h.io_errors} this boot`]];
+  if (h.emmc_life_used_pct) rows.push(["eMMC wear", `${h.emmc_life_used_pct[0]}–${h.emmc_life_used_pct[1]}% of its life used (${h.emmc_pre_eol || "?"})`]);
+  if (h.nvme) {
+    const n = h.nvme;
+    rows.push(["NVMe wear", `${n.percent_used}% used, ${n.available_spare}% spare left`],
+              ["NVMe health", n.critical_warning ? `Warning flags 0x${n.critical_warning.toString(16)}` : "No warnings"],
+              ["NVMe", `${n.temperature_c}°C, ${n.media_errors} media errors, ${fixed(n.written_gb, 0)} GB written, ${n.power_on_hours} h on`]);
+  }
+  if (!h.emmc_life_used_pct && !h.nvme) rows.push(["Wear", "SD cards don't report wear; watch for errors and read-only"]);
+  $("#storage tbody").innerHTML = rows.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join("");
+}
+
+function renderPeripherals(p) {
+  if (!p) return;
+  const list = (items) => (items.length ? items.map(esc).join("<br>") : `<span class="muted">None</span>`);
+  const displays = p.displays.map((d) => `${d.name}: ${d.connected ? "connected" : "not connected"}`);
+  const usb = p.usb.map((u) => (u.manufacturer ? `${u.product} (${u.manufacturer})` : u.product));
+  const i2c = p.i2c.map((d) => `${d.name} at ${d.address}`);
+  $("#peripherals tbody").innerHTML = [["Displays", list(displays)], ["Cameras", list(p.cameras)],
+    ["USB", list(usb)], ["I²C (kernel drivers)", list(i2c)]].map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+}
+
+const EVENT_TEXT = (e) => {
+  if (e.kind === "offline") return e.status === "auth_failed" ? "Stopped accepting the token" : "Went offline";
+  if (e.kind === "online") return `Back online after ${duration(e.down_s)} (${e.cause === "reboot" ? "rebooted" : "network dropout"})`;
+  if (e.kind === "action") return `${e.what[0].toUpperCase()}${e.what.slice(1)} from the dashboard${e.ok ? "" : ` failed: ${e.error || ""}`}`;
+  return e.kind;
+};
+
+function eventRows(evs, withPi, names) {
+  return evs.map((e) => `<tr class="ev-${esc(e.kind)}${e.cause ? ` ev-${esc(e.cause)}` : ""}"><td class="when">${esc(when(e.at))}</td>` +
+    (withPi ? `<td>${esc(names[e.pi] || e.pi)}</td>` : "") + `<td>${esc(EVENT_TEXT(e))}</td></tr>`).join("");
+}
 let charts = {};
 let currentRange = "1h";
 
@@ -532,6 +584,7 @@ function initCharts() {
   charts.cpu = makeChart("c-cpu", [{ label: "CPU", borderColor: accent }], { min: 0, max: 100 });
   charts.mem = makeChart("c-mem", [{ label: "RAM", borderColor: accent }], { min: 0, max: 100 });
   charts.disk = makeChart("c-disk", [{ label: "Disk", borderColor: accent }], { min: 0, max: 100 });
+  charts.wifi = makeChart("c-wifi", [{ label: "dBm", borderColor: cssVar("--accent") }], { max: -20 });
   charts.power = makeChart("c-power", [{ label: "W", borderColor: cssVar("--bad") }], { min: 0 });
   charts.fan = makeChart("c-fan", [{ label: "rpm", borderColor: cssVar("--warn") }], { min: 0 });
   charts.net = makeChart("c-net", [{ label: "Download", borderColor: accent }, { label: "Upload", borderColor: ok }], { min: 0, tick: (v) => rate(v) });
@@ -556,6 +609,9 @@ async function loadHistory(id) {
   set(charts.mem, h.mem_used.map((u, i) => (h.mem_total[i] ? (u / h.mem_total[i]) * 100 : null)));
   set(charts.disk, h.disk_pct);
   set(charts.net, h.net_rx_bps, h.net_tx_bps);
+  const wifi = h.wifi_dbm || [];
+  set(charts.wifi, wifi);
+  $("#wifi-fig").hidden = !wifi.some((v) => v != null);
   const power = h.power_w || [];
   const hasPower = power.some((v) => v != null);
   set(charts.power, power);
@@ -582,6 +638,7 @@ function renderLive(p) {
   const rows = s ? [
     ["Status", STATUS_TEXT[p.status]], ["Temperature", temp(s.temp_c)], ["CPU", `${pct(s.cpu_pct)} (load ${fixed(s.load1, 2)})`],
     ["RAM", `${bytes(s.mem_used)} of ${bytes(s.mem_total)}`], ["Swap", bytes(s.swap_used)], ["Disk", pct(s.disk_pct)],
+    ["Link", linkText(p.live.link)],
     ["Network", `↓ ${rate(s.net_rx_bps)}  ↑ ${rate(s.net_tx_bps)}`], ["Uptime", duration(p.live.uptime_s)],
     ["Fan", s.fan_rpm == null ? "No sensor" : `${s.fan_rpm} rpm`],
     ...(typeof s.power_w === "number" ? [["Board power", watts(s.power_w)]] : []),
@@ -620,6 +677,16 @@ function renderSpec(spec) {
 
 function detail(id, spec) {
   renderSpec(spec);
+  const loadExtras = async () => {
+    api("GET", `/api/pis/${encodeURIComponent(id)}/storage`).then(renderStorage).catch(() => {});
+    api("GET", `/api/pis/${encodeURIComponent(id)}/peripherals`).then(renderPeripherals).catch(() => {});
+    api("GET", `/api/events?pi=${encodeURIComponent(id)}&days=30`).then((r) => {
+      $("#pi-events tbody").innerHTML = eventRows(r.events.slice(0, 15), false, {});
+      $("#no-events").hidden = r.events.length > 0;
+    }).catch(() => {});
+  };
+  loadExtras();
+  setInterval(loadExtras, 60000);
   initCharts();
   const refresh = async () => {
     try {
@@ -675,10 +742,11 @@ function detail(id, spec) {
 // ---------- benchmarks & stress ----------
 const BENCH_COLS = [
   ["cpu", "int_1", 0], ["cpu", "int_all", 0], ["cpu", "fp_1", 0], ["cpu", "fp_all", 0],
+  ["mem", "mem_1", 0], ["mem", "mem_all", 0],
   ["disk", "seq_write_MBps", 1], ["disk", "seq_read_MBps", 1], ["disk", "rand4k_read_iops", 0], ["disk", "rand4k_write_iops", 0],
 ];
 const LOWER_IS_BETTER = new Set(); // every column is higher-is-better
-const TEST_NAME = { cpu: "CPU", disk: "disk" };
+const TEST_NAME = { cpu: "CPU", mem: "RAM", disk: "disk" };
 
 function when(iso) {
   return iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
@@ -921,4 +989,30 @@ function stressPage() {
   });
 
   loadPis().then(() => { poll(); setTimeout(pisLoop, 10000); });
+}
+
+// ---------- events tab ----------
+function eventsPage() {
+  let days = 7;
+  async function load() {
+    let pis = [], r;
+    try { [pis, r] = await Promise.all([api("GET", "/api/pis"), api("GET", `/api/events?days=${days}`)]); }
+    catch (e) { toast(`Couldn't load events: ${e.message}`); return; }
+    const names = Object.fromEntries(pis.map((p) => [p.id, p.hostname]));
+    $("#events-summary tbody").innerHTML = pis.map((p) => {
+      const s = r.summary[p.id] || { dropouts: 0, reboots: 0, longest_outage_s: 0, downtime_s: 0 };
+      return `<tr><th>${esc(p.hostname)}</th><td class="num">${s.dropouts}</td><td class="num">${s.reboots}</td>` +
+        `<td class="num">${s.longest_outage_s ? duration(s.longest_outage_s) : "–"}</td>` +
+        `<td class="num">${s.downtime_s ? duration(s.downtime_s) : "–"}</td></tr>`;
+    }).join("");
+    $("#timeline tbody").innerHTML = eventRows(r.events, true, names);
+    $("#no-timeline").hidden = r.events.length > 0;
+  }
+  document.querySelectorAll(".seg button[data-days]").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".seg button[data-days]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    days = Number(b.dataset.days);
+    load();
+  }));
+  load();
+  setInterval(load, 30000);
 }

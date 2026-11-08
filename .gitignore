@@ -4,5 +4,6 @@ __pycache__/
 *.toml.local
 pis.json*
 bench.json*
+events.json*
 dashboard.toml
 .pytest_cache/

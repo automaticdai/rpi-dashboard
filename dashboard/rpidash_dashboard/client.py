@@ -82,6 +82,12 @@ class AgentClient:
         return await self._req("POST", host, f"/services/{quote(entry, safe='')}/{quote(action, safe='')}",
                                port=port)
 
+    async def storage(self, host: str, port: int | None = None) -> dict:
+        return await self._req("GET", host, "/storage", port=port, timeout=max(self.timeout, 25))
+
+    async def peripherals(self, host: str, port: int | None = None) -> dict:
+        return await self._req("GET", host, "/peripherals", port=port, timeout=max(self.timeout, 15))
+
     async def now(self, host: str, port: int | None = None) -> dict:
         return await self._req("GET", host, "/now", port=port)
 

@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from .bench_store import BenchStore
+from .event_store import EventStore
 from .client import AgentAuthError, AgentClient, AgentError, AgentRejected
 from .config import DashboardConfig
 from .discovery import Rediscovery, scan
@@ -56,7 +57,7 @@ class StressRequest(BaseModel):
     minutes: int = 5
 
 
-BENCH_TESTS = ("cpu", "disk")
+BENCH_TESTS = ("cpu", "mem", "disk")
 
 
 def _now_iso() -> str:
@@ -73,6 +74,25 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     state = {"last_save": 0.0, "status": {}, "spec_at": {}, "spec_changed": False}
     bench = BenchStore(cfg.registry_path.parent / "bench.json")
     bench.load()
+    events = EventStore(cfg.registry_path.parent / "events.json")
+    events.load()
+
+    def log_action(pi_id: str, what: str, ok: bool, error: str | None = None) -> None:
+        events.add(pi_id, "action", what=what, ok=ok, **({"error": error} if error else {}))
+
+    def track_status(pi: Pi, status: str, live: dict | None) -> None:
+        """Log a Pi going offline and coming back; tell a reboot from a network dropout."""
+        last = events.last_status(pi.id)
+        was_online = state["status"].get(pi.id, None if last is None else ("online" if last["kind"] == "online" else "offline"))
+        if was_online is None:
+            return  # first sight of this Pi: nothing to compare with
+        if was_online == "online" and status != "online":
+            events.add(pi.id, "offline", status=status)
+        elif was_online != "online" and status == "online" and last and last["kind"] == "offline":
+            down_s = max(0, int((datetime.now(timezone.utc) - datetime.fromisoformat(last["at"])).total_seconds()))
+            uptime = (live or {}).get("uptime_s")
+            cause = "reboot" if isinstance(uptime, (int, float)) and uptime < down_s + 120 else "network"
+            events.add(pi.id, "online", down_s=down_s, cause=cause)
     log = logging.getLogger("rpidash_dashboard")
 
     def safe_save() -> None:
@@ -112,6 +132,10 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     @app.get("/bench", response_class=HTMLResponse)
     async def bench_page(request: Request):
         return templates.TemplateResponse(request, "bench.html")
+
+    @app.get("/events", response_class=HTMLResponse)
+    async def events_page(request: Request):
+        return templates.TemplateResponse(request, "events.html")
 
     @app.get("/stress", response_class=HTMLResponse)
     async def stress_page(request: Request):
@@ -173,9 +197,16 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
         except (AgentError, PermissionError, asyncio.TimeoutError):
             pass
         sample = (live or {}).get("sample")
+        warnings = health_warnings(sample, cfg, agent_version=(live or {}).get("version")) if live else []
+        if live:
+            link = live.get("link") or {}
+            if link.get("kind") == "Wi-Fi" and isinstance(link.get("signal_dbm"), (int, float)) \
+                    and link["signal_dbm"] <= cfg.warn_wifi_dbm:
+                warnings.append("wifi_weak")
+            warnings += [w for w in live.get("storage_warnings") or [] if isinstance(w, str)]
+        track_status(pi, status, live)
         return {"id": pi.id, "hostname": pi.hostname, "host": pi.host, "status": status, "live": live,
-                "spec": pi.spec, "last_seen": pi.last_seen,
-                "warnings": health_warnings(sample, cfg, agent_version=(live or {}).get("version"))}
+                "spec": pi.spec, "last_seen": pi.last_seen, "warnings": warnings}
 
     @app.get("/api/pis")
     async def list_pis():
@@ -347,15 +378,43 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
                                      f"wait for {pi.hostname} to be found again")
         return pi
 
+    async def logged(pi_id: str, what: str, coro_fn):
+        try:
+            result = await coro_fn()
+        except HTTPException as e:
+            log_action(pi_id, what, False, str(e.detail))
+            raise
+        log_action(pi_id, what, True)
+        return result
+
     @app.post("/api/pis/{pi_id}/reboot")
     async def reboot(pi_id: str):
-        pi = await verified_pi(pi_id)
-        return await agent_call(agents.reboot(pi.host, pi.port))
+        async def go():
+            pi = await verified_pi(pi_id)
+            return await agent_call(agents.reboot(pi.host, pi.port))
+        return await logged(pi_id, "reboot", go)
 
     @app.post("/api/pis/{pi_id}/shutdown")
     async def shutdown(pi_id: str):
-        pi = await verified_pi(pi_id)
-        return await agent_call(agents.shutdown(pi.host, pi.port))
+        async def go():
+            pi = await verified_pi(pi_id)
+            return await agent_call(agents.shutdown(pi.host, pi.port))
+        return await logged(pi_id, "shutdown", go)
+
+    @app.get("/api/pis/{pi_id}/storage")
+    async def pi_storage(pi_id: str):
+        pi = get_pi(pi_id)
+        return await agent_call(agents.storage(pi.host, pi.port))
+
+    @app.get("/api/pis/{pi_id}/peripherals")
+    async def pi_peripherals(pi_id: str):
+        pi = get_pi(pi_id)
+        return await agent_call(agents.peripherals(pi.host, pi.port))
+
+    @app.get("/api/events")
+    async def list_events(pi: str | None = None, days: float = 7):
+        evs = events.query(pi=pi, days=max(0.0, min(days, 365)))
+        return {"events": evs[:1000], "summary": events.summary(evs)}
 
     @app.post("/api/pis/{pi_id}/agent/restart")
     async def restart_agent(pi_id: str):
@@ -376,7 +435,9 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
                 pi = await verified_pi(pi_id)
                 await agent_call(do(pi.host, pi.port))
             except HTTPException as e:
+                log_action(pi_id, body.action, False, str(e.detail))
                 return {"error": str(e.detail)}
+            log_action(pi_id, body.action, True)
             return {"ok": True}
 
         ids = list(dict.fromkeys(body.ids))
@@ -384,7 +445,9 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
 
     @app.post("/api/pis/{pi_id}/services/{entry}/{action}")
     async def service_action(pi_id: str, entry: str, action: str):
-        pi = await verified_pi(pi_id)
-        return await agent_call(agents.service_action(pi.host, entry, action, pi.port))
+        async def go():
+            pi = await verified_pi(pi_id)
+            return await agent_call(agents.service_action(pi.host, entry, action, pi.port))
+        return await logged(pi_id, f"{action} {entry}", go)
 
     return app

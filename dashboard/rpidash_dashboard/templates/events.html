@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Events · Pi fleet{% endblock %}
+{% block main %}
+<section class="results">
+  <div class="results-head">
+    <h2>Availability</h2>
+    <div class="seg" role="group" aria-label="Period">
+      <button type="button" data-days="1">24 h</button><button type="button" data-days="7" aria-pressed="true">7 days</button><button type="button" data-days="30">30 days</button>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table id="events-summary" class="table events-summary">
+      <thead><tr><th>Pi</th><th class="num">Network dropouts</th><th class="num">Reboots</th><th class="num">Longest outage</th><th class="num">Total downtime</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="muted">A Pi that comes back with a fresh uptime rebooted; one that was up the whole time lost its network. Only recorded while the dashboard is running.</p>
+</section>
+<section class="results">
+  <h2>Timeline</h2>
+  <div class="table-scroll"><table id="timeline" class="table"><tbody></tbody></table></div>
+  <p id="no-timeline" class="muted" hidden>Nothing has happened in this period.</p>
+</section>
+{% endblock %}
+{% block script %}<script>eventsPage()</script>{% endblock %}
