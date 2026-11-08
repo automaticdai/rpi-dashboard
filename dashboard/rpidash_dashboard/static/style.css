@@ -126,6 +126,9 @@ main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 #bulk-count { font-weight: 600; margin-right: 4px; }
 input.pick { position: relative; z-index: 1; width: 1.05rem; height: 1.05rem; margin: 0 6px 0 0; accent-color: var(--accent); cursor: pointer; }
 .cell.pickcell { display: flex; align-items: center; gap: 2px; }
+/* Cards: drag handle on the left, select box on the right (after the temperature). */
+.card-head .grip { padding: 0 4px 0 0; margin-left: -4px; }
+.card-head input.pick { margin: 0 0 0 4px; }
 th.pickcol, td.pickcol { width: 1.6rem; padding-right: 0 !important; }
 .list-head, .card.row {
   display: grid; align-items: center; gap: 12px;

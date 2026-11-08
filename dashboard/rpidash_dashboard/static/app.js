@@ -166,9 +166,9 @@ function card(p) {
   if (stressing.length) chips.unshift(`<span class="chip warn">Stress running: ${stressing.join(", ")}</span>`);
   if (p.status !== "online") chips.unshift(`<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span>`);
   el.innerHTML = `
-    <div class="card-head">${pick(p)}<span class="dot ${p.status}"></span><h2><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a></h2>
+    <div class="card-head"><button class="grip" aria-label="Move ${esc(p.hostname)} (drag, or use arrow keys)" title="Drag to reorder">⠿</button><span class="dot ${p.status}"></span><h2><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a></h2>
       <span class="temp">${s ? temp(s.temp_c) : ""}</span>
-      <button class="grip" aria-label="Move ${esc(p.hostname)} (drag, or use arrow keys)" title="Drag to reorder">⠿</button></div>
+      ${pick(p)}</div>
     <div class="model" title="${esc([spec.model, hardwareLine(spec, s)].filter(Boolean).join(" – "))}">${esc(cardSubtitle(spec, p.host))}</div>
     ${body}
     <div class="card-foot">${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
