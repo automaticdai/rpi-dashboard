@@ -163,7 +163,8 @@ function card(p) {
   } else {
     body = `<div class="meta"><span>${esc(spec.os || "")}</span><span>last seen ${ago(p.last_seen)}</span></div>`;
   }
-  const chips = p.warnings.map((w) => `<span class="chip ${WARN_LEVEL(w)}">${WARN_TEXT[w] || esc(w)}</span>`);
+  // Cards skip "Disk read-only"; it shows on the Pi's Storage health panel instead.
+  const chips = p.warnings.filter((w) => w !== "storage_readonly").map((w) => `<span class="chip ${WARN_LEVEL(w)}">${WARN_TEXT[w] || esc(w)}</span>`);
   const stressing = p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => esc(k).toUpperCase()) : [];
   if (stressing.length) chips.unshift(`<span class="chip warn">Stress running: ${stressing.join(", ")}</span>`);
   if (p.status !== "online") chips.unshift(`<span class="chip ${p.status === "auth_failed" ? "bad" : "off"}">${STATUS_TEXT[p.status]}</span>`);
