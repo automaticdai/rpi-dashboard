@@ -109,3 +109,14 @@ def test_usb_camera_named_by_its_usb_device_not_its_driver(tmp_path):
     (tmp_path / "sys/class/video4linux/video0").symlink_to(vdir)
     p = health.peripherals(root=tmp_path, list_cameras=lambda: [])
     assert p["cameras"] == ["USB Camera-B4.09.24.1 (USB)"]
+
+
+def test_read_only_uses_the_real_system_view_not_the_agents_sandbox(tmp_path):
+    # The agent runs with ProtectSystem=strict, so its own /proc/mounts shows / as read-only.
+    write(tmp_path, "proc/mounts", "/dev/mmcblk0p2 / ext4 ro,nosuid,noatime 0 0\n")      # sandbox view
+    write(tmp_path, "proc/1/mounts", "/dev/mmcblk0p2 / ext4 rw,noatime 0 0\n")           # the real system
+    h = health.storage_health("/dev/mmcblk0p2", root=tmp_path, kernel_errors=lambda: 0, nvme_smart=lambda d: None)
+    assert h["read_only"] is False
+    write(tmp_path, "proc/1/mounts", "/dev/mmcblk0p2 / ext4 ro,noatime 0 0\n")           # really read-only
+    h = health.storage_health("/dev/mmcblk0p2", root=tmp_path, kernel_errors=lambda: 0, nvme_smart=lambda d: None)
+    assert h["read_only"] is True

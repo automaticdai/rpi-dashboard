@@ -117,7 +117,10 @@ def storage_health(root_device: str | None, root: Path = ROOT, kernel_errors=ker
     name = Path(root_device or "").name
     out: dict = {"device": root_device, "read_only": None, "io_errors": kernel_errors(),
                  "emmc_life_used_pct": None, "emmc_pre_eol": None, "nvme": None}
-    for line in (_read(root / "proc/mounts") or "").splitlines():
+    # Read init's view (PID 1): the agent's own /proc/mounts is its ProtectSystem=strict sandbox,
+    # where / is always read-only.
+    mounts = _read(root / "proc/1/mounts") or _read(root / "proc/mounts") or ""
+    for line in mounts.splitlines():
         f = line.split()
         if len(f) >= 4 and f[1] == "/":
             out["read_only"] = "ro" in f[3].split(",")

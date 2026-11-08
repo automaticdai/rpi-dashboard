@@ -1,4 +1,4 @@
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 # The agent version this dashboard was built with; Pis reporting anything else are flagged.
 # Agent and dashboard live in one repo and are released together (see test_versions.py).
-EXPECTED_AGENT_VERSION = "0.3.0"
+EXPECTED_AGENT_VERSION = "0.3.1"
