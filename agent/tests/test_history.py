@@ -128,3 +128,12 @@ def test_power_mean_and_unknown():
     assert h.query(3600, now=5)["power_w"] == [pytest.approx(2.0)]
     h2 = History(); h2.append(s(0))
     assert h2.query(3600, now=5)["power_w"] == [None] and h2.latest().power_w is None
+
+
+def test_wifi_mean_and_unknown():
+    from dataclasses import replace
+    h = History()
+    h.append(replace(s(0), wifi_dbm=-70)); h.append(replace(s(1), wifi_dbm=-60)); h.append(s(2))
+    assert h.query(3600, now=5)["wifi_dbm"] == [pytest.approx(-65.0)]
+    h2 = History(); h2.append(s(0))
+    assert h2.latest().wifi_dbm is None

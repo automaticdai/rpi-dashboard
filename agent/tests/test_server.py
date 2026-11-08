@@ -79,7 +79,10 @@ def agent():
     srv = make_server(cfg, history, Services(cfg.services_allowlist, runner=runner), host="127.0.0.1", port=0,
                       spec_fn=lambda: {"model": "Test Pi"}, id_fn=lambda: "mid-1",
                       top_fn=lambda: [], reboot_delay=0.05, jobs=FakeJobs(), stress=FakeStress(),
-                      now_fn=lambda: {"ts": 123.0, "cpu_pct": 42.0})
+                      now_fn=lambda: {"ts": 123.0, "cpu_pct": 42.0},
+                      link_fn=lambda: {"interface": "wlan0", "kind": "Wi-Fi", "signal_dbm": -72},
+                      storage_fn=lambda: {"device": "/dev/mmcblk0p2", "read_only": False, "io_errors": 3},
+                      peripherals_fn=lambda: {"displays": [], "cameras": ["imx219"], "i2c": [], "usb": []})
 
     t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     t.start()
@@ -317,3 +320,19 @@ def test_live_reports_agent_process_uptime(agent):
     base, _, _ = agent
     up = call(base + "/live")[1]["agent_uptime_s"]
     assert isinstance(up, (int, float)) and 0 <= up < 3600
+
+
+
+def test_storage_and_peripherals_endpoints(agent):
+    base, _, _ = agent
+    for path in ("/storage", "/peripherals"):
+        assert call(base + path, token=None)[0] == 401
+    assert call(base + "/storage")[1]["io_errors"] == 3
+    assert call(base + "/peripherals")[1]["cameras"] == ["imx219"]
+
+
+def test_live_has_link_and_storage_warnings(agent):
+    base, _, _ = agent
+    live = call(base + "/live")[1]
+    assert live["link"]["signal_dbm"] == -72
+    assert live["storage_warnings"] == ["storage_errors"]

@@ -16,6 +16,7 @@ import psutil
 
 from . import __version__
 from .collect import machine_id, read_spec, top_processes
+from .health import network_link, peripherals, storage_health, storage_warnings
 from .config import AgentConfig
 from .bench import BenchError
 from .stress import StressError
@@ -25,11 +26,29 @@ from .services import Services
 ENTRY_RE = re.compile(r"^(user:)?[A-Za-z0-9@._-]+$")
 
 
+class _Cached:
+    def __init__(self, fn, ttl: float) -> None:
+        self.fn, self.ttl, self._at, self._value = fn, ttl, None, None
+        self._lock = threading.Lock()
+
+    def get(self):
+        with self._lock:
+            if self._at is None or time.monotonic() - self._at > self.ttl:
+                self._value, self._at = self.fn(), time.monotonic()
+            return self._value
+
+
 def make_server(cfg: AgentConfig, history: History, services: Services, *, host: str = "0.0.0.0",
                 port: int | None = None, spec_fn=read_spec, id_fn=machine_id, top_fn=top_processes,
                 reboot_delay: float = 1.0, request_timeout: float = 10.0, jobs=None,
-                stress=None, now_fn=None) -> ThreadingHTTPServer:
+                stress=None, now_fn=None, link_fn=network_link, storage_fn=None,
+                peripherals_fn=peripherals) -> ThreadingHTTPServer:
     token = cfg.token.encode()
+    if storage_fn is None:
+        storage_fn = lambda: storage_health((spec_fn() or {}).get("root_device"))  # noqa: E731
+    # Slower reports are cached so frequent /live polls don't re-read them.
+    storage_cached = _Cached(storage_fn, ttl=300)
+    peripherals_cached = _Cached(peripherals_fn, ttl=60)
     started = psutil.Process().create_time()
 
     class Handler(BaseHTTPRequestHandler):
@@ -78,12 +97,16 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
             if url.path == "/health":
                 return self._send(200, {"app": "rpidash-agent", "id": id_fn(),
                                         "hostname": socket.gethostname(), "version": __version__})
-            if url.path not in ("/spec", "/live", "/history", "/bench", "/now"):
+            if url.path not in ("/spec", "/live", "/history", "/bench", "/now", "/storage", "/peripherals"):
                 return self._send(404, {"error": "not found"})
             if not self._authed():
                 return
             if url.path == "/spec":
                 return self._send(200, spec_fn())
+            if url.path == "/storage":
+                return self._send(200, storage_cached.get())
+            if url.path == "/peripherals":
+                return self._send(200, peripherals_cached.get())
             if url.path == "/now":
                 if now_fn is None:
                     return self._send(503, {"error": "live readings unavailable"})
@@ -103,6 +126,8 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
                     "uptime_s": time.time() - psutil.boot_time(),
                     "agent_uptime_s": time.time() - started,
                     "stress": stress.status() if stress else None,
+                    "link": link_fn(),
+                    "storage_warnings": storage_warnings(storage_cached.get() or {}),
                 })
             rng = parse_qs(url.query).get("range", ["1h"])[0]
             if rng not in RANGES:

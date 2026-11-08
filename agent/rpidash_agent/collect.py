@@ -31,6 +31,7 @@ class Sample:
     throttled: int | None
     fan_rpm: int | None = None
     power_w: float | None = None  # Pi 5 / CM5 only: sum of the PMIC's measured supply rails
+    wifi_dbm: float | None = None  # signal of the Wi-Fi link carrying the default route
 
 
 FIELDS: tuple[str, ...] = tuple(f.name for f in fields(Sample))
@@ -67,6 +68,14 @@ def read_fan_rpm(root: Path = ROOT) -> int | None:
         except (OSError, ValueError):
             continue
     return max(speeds) if speeds else None
+
+
+def _wifi_dbm() -> float | None:
+    from .health import wifi_dbm  # local import: health imports nothing from here
+    try:
+        return wifi_dbm()
+    except (OSError, ValueError, IndexError):
+        return None
 
 
 def parse_pmic(text: str) -> float | None:
@@ -263,4 +272,5 @@ class Collector:
             throttled=read_throttled(),
             fan_rpm=read_fan_rpm(),
             power_w=self.read_power(),
+            wifi_dbm=_wifi_dbm(),
         )

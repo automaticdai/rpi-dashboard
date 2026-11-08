@@ -164,3 +164,7 @@ def test_read_power_gives_up_on_boards_without_a_pmic(monkeypatch):
 
 def test_sample_has_power_field():
     assert "power_w" in collect.FIELDS
+
+
+def test_sample_has_wifi_field():
+    assert "wifi_dbm" in collect.FIELDS
