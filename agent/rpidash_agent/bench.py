@@ -1,4 +1,5 @@
-"""Benchmarks run by the agent: CPU (rpibench) and disk (O_DIRECT, like ~/disk_bench.py).
+"""Benchmarks run by the agent: CPU and RAM bandwidth (rpibench) and disk (O_DIRECT, like
+~/disk_bench.py).
 One job at a time, in a background thread."""
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import time
 from pathlib import Path
 
 
-TESTS = ("cpu", "disk")
+TESTS = ("cpu", "mem", "disk")
 MiB = 1024 * 1024
 BLK4K = 4096
 
@@ -115,6 +116,13 @@ class Benchmarks:
         cc = self.binary.with_name(self.binary.name + ".compiler")
         out["compiler"] = cc.read_text().strip() if cc.exists() else None
         return out
+
+    def mem(self, seconds: float = 5) -> dict:
+        """RAM bandwidth (MB/s), STREAM-style triad, on one core and on all cores."""
+        if not self.binary.exists():
+            raise BenchError("rpibench not built (re-run install.sh on a Pi with a C compiler)")
+        return {"mem_1": self._rpibench("mem", 1, seconds),
+                "mem_all": self._rpibench("mem", self.cores, seconds), "cores": self.cores}
 
     def disk(self, size_mb: int = 256, secs: float = 10) -> dict:
         self.state_dir.mkdir(parents=True, exist_ok=True)

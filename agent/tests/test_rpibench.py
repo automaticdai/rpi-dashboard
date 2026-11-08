@@ -50,3 +50,15 @@ def test_burn_runs_until_killed(binary):
     assert p.poll() is None
     p.terminate()
     assert p.wait(timeout=3) is not None
+
+
+def test_mem_bandwidth(binary):
+    d = run(binary, "mem", "1", "0.5")
+    assert d["test"] == "mem" and d["unit"] == "MB/s" and d["score"] > 100
+
+
+def test_mem_multi_thread_reports(binary):
+    # No assumption about scaling: on Pis, four cores share one memory controller and can
+    # measure *less* than one core (seen on the CM5 and Zero 2), so only check it runs.
+    d = run(binary, "mem", "2", "0.5")
+    assert d["threads"] == 2 and d["score"] > 100

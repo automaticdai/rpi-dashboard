@@ -3,6 +3,7 @@
  *
  *   rpibench int   <threads> <seconds>   integer score, Mops/s
  *   rpibench fp    <threads> <seconds>   floating-point score, MFLOPS (double precision)
+ *   rpibench mem   <threads> <seconds>   RAM bandwidth, MB/s (STREAM-style triad, 8 MB arrays)
  *   rpibench burn  <threads>             busy loop on every thread until killed (stress)
  *
  * Prints one JSON line. Each thread repeats a fixed kernel until the time is up; the score is
@@ -92,11 +93,28 @@ static double fp_kernel(fp_state *s, uint32_t seed) {
     return r;
 }
 
+/* ---------- memory bandwidth kernel ---------- */
+/* Triad a[i] = b[i] + s*c[i] over arrays far bigger than any Pi's caches (8 MB each, 24 MB per
+ * thread), so it measures RAM. Bytes counted per pass: 3 arrays x 8 MB (2 reads + 1 write). */
+#define MEM_N (1u << 20) /* doubles per array = 8 MB */
+#define MEM_BYTES_PER_ITER (3.0 * MEM_N * sizeof(double))
+
+typedef struct {
+    double *a, *b, *c;
+} mem_state;
+
+static double mem_kernel(mem_state *s, uint32_t seed) {
+    const double k = 1.0 + (seed & 7) * 1e-9;
+    double *restrict a = s->a, *restrict b = s->b, *restrict c = s->c;
+    for (uint32_t i = 0; i < MEM_N; i++) a[i] = b[i] + k * c[i];
+    return a[seed % MEM_N];
+}
+
 /* ---------- threading ---------- */
 static volatile int stop_flag = 0;
 
 typedef struct {
-    int mode; /* 0 int, 1 fp */
+    int mode; /* 0 int, 1 fp, 2 mem */
     uint64_t iterations;
     double sink;
 } worker;
@@ -113,6 +131,14 @@ static void *run_worker(void *arg) {
         while (!stop_flag) { acc += int_kernel(s, seed++); w->iterations++; }
         w->sink = (double)acc;
         free(s);
+    } else if (w->mode == 2) {
+        mem_state s = {malloc(MEM_N * sizeof(double)), malloc(MEM_N * sizeof(double)), malloc(MEM_N * sizeof(double))};
+        if (!s.a || !s.b || !s.c) { free(s.a); free(s.b); free(s.c); return NULL; }
+        for (uint32_t i = 0; i < MEM_N; i++) { s.a[i] = 0; s.b[i] = 1.0 + i * 1e-9; s.c[i] = 2.0 - i * 1e-9; }
+        double acc = 0.0;
+        while (!stop_flag) { acc += mem_kernel(&s, seed++); w->iterations++; }
+        w->sink = acc;
+        free(s.a); free(s.b); free(s.c);
     } else {
         fp_state *s = malloc(sizeof *s);
         for (int i = 0; i < FM; i++)
@@ -133,15 +159,16 @@ static double now(void) {
 }
 
 static int usage(void) {
-    fprintf(stderr, "usage: rpibench int|fp <threads> <seconds>  |  rpibench burn <threads>\n");
+    fprintf(stderr, "usage: rpibench int|fp|mem <threads> <seconds>  |  rpibench burn <threads>\n");
     return 2;
 }
 
 int main(int argc, char **argv) {
     if (argc < 3) return usage();
     int burn = strcmp(argv[1], "burn") == 0;
-    int mode = strcmp(argv[1], "fp") == 0 ? 1 : 0;
-    if (!burn && strcmp(argv[1], "int") != 0 && strcmp(argv[1], "fp") != 0) return usage();
+    int mode = strcmp(argv[1], "fp") == 0 ? 1 : strcmp(argv[1], "mem") == 0 ? 2 : 0;
+    if (!burn && strcmp(argv[1], "int") != 0 && strcmp(argv[1], "fp") != 0 && strcmp(argv[1], "mem") != 0)
+        return usage();
     int threads = atoi(argv[2]);
     double secs = burn ? 0 : (argc > 3 ? atof(argv[3]) : 5.0);
     if (threads < 1 || threads > 256 || (!burn && (secs <= 0 || secs > 600))) return usage();
@@ -171,10 +198,11 @@ int main(int argc, char **argv) {
         sink += ws[i].sink;
     }
     double elapsed = now() - t0;
-    double ops = mode == 0 ? (double)total * int_ops_per_iter : (double)total * FP_FLOPS_PER_ITER;
+    static const char *names[] = {"int", "fp", "mem"}, *units[] = {"Mops/s", "MFLOPS", "MB/s"};
+    double per_iter = mode == 0 ? (double)int_ops_per_iter : mode == 1 ? FP_FLOPS_PER_ITER : MEM_BYTES_PER_ITER;
     printf("{\"test\": \"%s\", \"threads\": %d, \"seconds\": %.3f, \"score\": %.1f, \"unit\": \"%s\", "
            "\"iterations\": %llu, \"check\": %.0f}\n",
-           mode == 0 ? "int" : "fp", threads, elapsed, ops / elapsed / 1e6, mode == 0 ? "Mops/s" : "MFLOPS",
+           names[mode], threads, elapsed, (double)total * per_iter / elapsed / 1e6, units[mode],
            (unsigned long long)total, fmod(sink, 1e9));
     free(ws);
     free(ts);

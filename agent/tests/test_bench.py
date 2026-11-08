@@ -16,7 +16,7 @@ class FakeRun:
     def __call__(self, cmd, **kw):
         self.calls.append(cmd)
         test, threads = cmd[-3], int(cmd[-2])
-        score = {"int": 100.0, "fp": 50.0}[test] * threads
+        score = {"int": 100.0, "fp": 50.0, "mem": 75.0}[test] * threads
         out = json.dumps({"test": test, "threads": threads, "seconds": 5.0, "score": score, "unit": "x"})
         return subprocess.CompletedProcess(cmd, 0, out + "\n", "")
 
@@ -76,6 +76,9 @@ class SlowBench:
     def disk(self):
         return self._go("disk")
 
+    def mem(self):
+        return self._go("mem")
+
 
 
 def wait_done(jobs):
@@ -127,7 +130,14 @@ def test_idle_status():
 
 def test_internet_benchmark_removed():
     import rpidash_agent.bench as bench
-    assert bench.TESTS == ("cpu", "disk")
+    assert bench.TESTS == ("cpu", "mem", "disk")
     with pytest.raises(ValueError):
         BenchJobs(SlowBench()).start(["net"])
     assert not hasattr(bench, "CloudflareNet") and not hasattr(Benchmarks, "net")
+
+
+def test_mem_bench_runs_one_and_all_cores(tmp_path):
+    run = FakeRun()
+    r = make(tmp_path, run=run).mem(seconds=5)
+    assert r == {"mem_1": 75.0, "mem_all": 300.0, "cores": 4}
+    assert [c[-3:] for c in run.calls] == [["mem", "1", "5"], ["mem", "4", "5"]]
