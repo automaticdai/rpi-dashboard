@@ -55,6 +55,26 @@ def test_net_rates(monkeypatch):
     assert c.sample(120.0).net_rx_bps == 0.0
 
 
+def test_read_disk_bytes_counts_physical_disks_only(tmp_path):
+    from rpidash_agent.collect import read_disk_bytes
+    stat = "100 0 {r} 0 50 0 {w} 0 0 0 0\n"
+    for name, r, w in [("mmcblk0", 10, 20), ("nvme0n1", 1, 2), ("loop0", 999, 999), ("zram0", 999, 999)]:
+        d = tmp_path / "sys/block" / name
+        d.mkdir(parents=True)
+        (d / "stat").write_text(stat.format(r=r, w=w))
+    assert read_disk_bytes(tmp_path) == (11 * 512, 22 * 512)
+
+
+def test_disk_rates(monkeypatch):
+    counters = [(0, 0)]
+    monkeypatch.setattr(collect, "read_disk_bytes", lambda: counters[-1])
+    c = Collector()
+    assert c.sample(100.0).disk_read_bps == 0.0
+    counters.append((5000, 20_000))
+    s = c.sample(110.0)
+    assert (s.disk_read_bps, s.disk_write_bps) == (500.0, 2000.0)
+
+
 def test_machine_id(tmp_path):
     (tmp_path / "etc").mkdir()
     (tmp_path / "etc/machine-id").write_text("abc\n")

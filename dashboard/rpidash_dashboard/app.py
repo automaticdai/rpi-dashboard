@@ -53,6 +53,7 @@ class BulkAction(BaseModel):
 class StressRequest(BaseModel):
     cpu: bool = False
     ram: bool = False
+    disk: bool = False
     net: bool = False
     minutes: int = 5
 

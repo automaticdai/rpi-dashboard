@@ -223,7 +223,9 @@ def test_stress_proxy(make_client):
     with c:
         r = c.post("/api/pis/A/stress", json={"cpu": True, "ram": False, "net": False, "minutes": 5})
         assert r.status_code == 200
-        assert fake.posted[-1] == ("/stress", {"cpu": True, "ram": False, "net": False, "minutes": 5})
+        assert fake.posted[-1] == ("/stress", {"cpu": True, "ram": False, "disk": False, "net": False, "minutes": 5})
+        c.post("/api/pis/A/stress", json={"disk": True, "minutes": 2})
+        assert fake.posted[-1][1]["disk"] is True
         assert c.post("/api/pis/A/stress/stop").status_code == 200
         assert fake.posted[-1][0] == "/stress/stop"
         assert c.post("/api/pis/A/stress", json={"cpu": True}, headers={"Origin": "http://evil.example"}).status_code == 403

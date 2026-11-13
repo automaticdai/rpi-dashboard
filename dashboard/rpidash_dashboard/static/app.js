@@ -867,6 +867,7 @@ const LIVE_METRICS = {
   cpu: (s) => s.cpu_pct,
   mem: (s) => (s.mem_total ? (s.mem_used / s.mem_total) * 100 : null),
   temp: (s) => s.temp_c,
+  disk: (s) => (typeof s.disk_read_bps === "number" ? (s.disk_read_bps + (s.disk_write_bps || 0)) / 1e6 : null),
   net: (s) => (typeof s.net_rx_bps === "number" ? (s.net_rx_bps * 8) / 1e6 : null),
   power: (s) => (typeof s.power_w === "number" ? s.power_w : null),
 };
@@ -895,6 +896,7 @@ function stressPage() {
     cpu: liveChart("l-cpu", { min: 0, max: 100 }),
     mem: liveChart("l-mem", { min: 0, max: 100 }),
     temp: liveChart("l-temp", { suggestedMax: 80 }),
+    disk: liveChart("l-disk", { min: 0 }),
     net: liveChart("l-net", { min: 0 }),
     power: liveChart("l-power", { min: 0 }),
   };
@@ -910,7 +912,8 @@ function stressPage() {
       h.ts.forEach((t, i) => {
         if (t * 1000 < since) return;
         const s = { cpu_pct: h.cpu_pct[i], mem_used: h.mem_used[i], mem_total: h.mem_total[i], temp_c: h.temp_c[i],
-                    net_rx_bps: h.net_rx_bps[i], power_w: (h.power_w || [])[i] };
+                    net_rx_bps: h.net_rx_bps[i], power_w: (h.power_w || [])[i],
+                    disk_read_bps: (h.disk_read_bps || [])[i], disk_write_bps: (h.disk_write_bps || [])[i] };
         for (const [k, f] of Object.entries(LIVE_METRICS)) series[p.id].points[k].push({ x: t * 1000, y: f(s) });
       });
     } catch { /* fine: the line just starts now */ }
@@ -958,7 +961,7 @@ function stressPage() {
       for (const p of pis) {
         if (!series[p.id]) {
           series[p.id] = { name: p.hostname, colour: PI_COLOURS[order.indexOf(p.id) % PI_COLOURS.length],
-                           points: { cpu: [], mem: [], temp: [], net: [], power: [] } };
+                           points: { cpu: [], mem: [], temp: [], disk: [], net: [], power: [] } };
           if (p.status === "online") seed(p);
         }
       }
@@ -974,7 +977,8 @@ function stressPage() {
     const minutes = Number($("#stress-minutes").value);
     if (!ids.length || !loads.length) { toast("Tick at least one Pi and one load."); return; }
     if (!(minutes >= 1 && minutes <= 30)) { toast("Choose between 1 and 30 minutes."); return; }
-    const body = { cpu: loads.includes("cpu"), ram: loads.includes("ram"), net: loads.includes("net"), minutes };
+    const body = { cpu: loads.includes("cpu"), ram: loads.includes("ram"), disk: loads.includes("disk"),
+                   net: loads.includes("net"), minutes };
     const out = await Promise.allSettled(ids.map((id) => api("POST", `/api/pis/${encodeURIComponent(id)}/stress`, body)));
     const bad = out.filter((o) => o.status === "rejected");
     toast(bad.length ? `Stress failed on ${bad.length} Pi(s): ${bad[0].reason.message}` : `Stress started for ${minutes} min on ${ids.length} Pi(s)`);

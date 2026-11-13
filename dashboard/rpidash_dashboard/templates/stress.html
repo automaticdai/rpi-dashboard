@@ -13,7 +13,8 @@
       <legend>Load</legend>
       <div class="ticks">
         <label><input type="checkbox" name="load" value="cpu" checked> CPU <span class="muted">every core busy</span></label>
-        <label><input type="checkbox" name="load" value="ram" checked> RAM <span class="muted">holds 40% of free memory</span></label>
+        <label><input type="checkbox" name="load" value="ram" checked> RAM <span class="muted">fills 70% of free memory and keeps copying through it</span></label>
+        <label><input type="checkbox" name="load" value="disk"> Disk <span class="muted">sequential and random reads/writes on a file of up to 512 MB (wears SD cards)</span></label>
         <label><input type="checkbox" name="load" value="net"> Network <span class="muted">downloads large files from Debian and Ubuntu mirrors</span></label>
         <label>For <input type="number" id="stress-minutes" min="1" max="30" value="5"> minutes</label>
       </div>
@@ -31,6 +32,7 @@
     <figure><figcaption>CPU %</figcaption><canvas id="l-cpu"></canvas></figure>
     <figure><figcaption>RAM %</figcaption><canvas id="l-mem"></canvas></figure>
     <figure><figcaption>Temperature °C</figcaption><canvas id="l-temp"></canvas></figure>
+    <figure><figcaption>Disk I/O MB/s (read + write)</figcaption><canvas id="l-disk"></canvas></figure>
     <figure><figcaption>Network download Mbit/s</figcaption><canvas id="l-net"></canvas></figure>
     <figure><figcaption title="Board power from the Pi's power chip (PMIC), Pi 5 and CM5 only; USB devices, NVMe and fan on 5 V aren't included.">Board power W (Pi 5 / CM5)</figcaption><canvas id="l-power"></canvas></figure>
   </div>

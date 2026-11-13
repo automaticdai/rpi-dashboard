@@ -32,6 +32,8 @@ class Sample:
     fan_rpm: int | None = None
     power_w: float | None = None  # Pi 5 / CM5 only: sum of the PMIC's measured supply rails
     wifi_dbm: float | None = None  # signal of the Wi-Fi link carrying the default route
+    disk_read_bps: float = 0.0  # bytes/s read from / written to whole block devices (SD, eMMC, NVMe, USB)
+    disk_write_bps: float = 0.0
 
 
 FIELDS: tuple[str, ...] = tuple(f.name for f in fields(Sample))
@@ -211,9 +213,29 @@ def top_processes(n: int = 10) -> list[dict]:
     return rows[:n]
 
 
+_VIRTUAL_DISK = re.compile(r"^(loop|ram|zram|dm-|md|sr|fd)")
+
+
+def read_disk_bytes(root: Path = ROOT) -> tuple[int, int]:
+    """Total bytes read and written by the physical disks since boot (/sys/block/*/stat counts
+    512-byte sectors; partitions aren't listed there, so nothing is counted twice)."""
+    rd = wr = 0
+    for stat in (root / "sys/block").glob("*/stat"):
+        if _VIRTUAL_DISK.match(stat.parent.name):
+            continue
+        try:
+            f = stat.read_text().split()
+            rd += int(f[2]) * 512
+            wr += int(f[6]) * 512
+        except (OSError, ValueError, IndexError):
+            continue
+    return rd, wr
+
+
 class Collector:
     def __init__(self) -> None:
         self._prev_net: tuple[float, int, int] | None = None
+        self._prev_disk: tuple[float, int, int] | None = None
         self._has_pmic: bool | None = None  # learned on the first read
         # CPU % is worked out here from cpu_times() deltas. psutil.cpu_percent(None) keeps its
         # baseline per thread, and the HTTP server answers each request on a new thread.
@@ -255,9 +277,18 @@ class Collector:
         dt = now - prev[0]
         return max(0.0, (rx - prev[1]) / dt), max(0.0, (tx - prev[2]) / dt)
 
+    def _disk(self, now: float) -> tuple[float, float]:
+        rd, wr = read_disk_bytes()
+        prev, self._prev_disk = self._prev_disk, (now, rd, wr)
+        if prev is None or now <= prev[0]:
+            return 0.0, 0.0
+        dt = now - prev[0]
+        return max(0.0, (rd - prev[1]) / dt), max(0.0, (wr - prev[2]) / dt)
+
     def sample(self, now: float) -> Sample:
         vm = psutil.virtual_memory()
         rx, tx = self._net(now)
+        drd, dwr = self._disk(now)
         return Sample(
             ts=now,
             cpu_pct=self.cpu_pct(),
@@ -273,4 +304,6 @@ class Collector:
             fan_rpm=read_fan_rpm(),
             power_w=self.read_power(),
             wifi_dbm=_wifi_dbm(),
+            disk_read_bps=drd,
+            disk_write_bps=dwr,
         )

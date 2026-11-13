@@ -48,6 +48,7 @@ class FakeJobs:
 
 
 STRESS_STATE = {"cpu": False, "ram": False, "net": False}
+STRESS_STARTS = []
 
 
 class FakeStress:
@@ -61,6 +62,7 @@ class FakeStress:
         if kw["minutes"] == 7:
             raise StressError("cpu: Failed to find executable rpibench")
         self.calls.append(("start", kw))
+        STRESS_STARTS.append(kw)
         return {"cpu": kw["cpu"], "ram": kw["ram"], "net": kw["net"]}
 
     def stop(self):
@@ -259,6 +261,9 @@ def test_stress_start_stop_and_live(agent):
     assert call(base + "/stress", "POST", token="wrong", body={"cpu": True})[0] == 401
     code, body = call(base + "/stress", "POST", body={"cpu": True, "ram": False, "net": True, "minutes": 5})
     assert code == 200 and body == {"cpu": True, "ram": False, "net": True}
+    call(base + "/stress", "POST", body={"disk": True, "minutes": 2})
+    starts = [kw for kw in STRESS_STARTS[-2:]]
+    assert starts[0]["disk"] is False and starts[1]["disk"] is True
     assert call(base + "/stress", "POST", body={"cpu": True, "minutes": 99})[0] == 400
     assert call(base + "/stress/stop", "POST")[1] == {"cpu": False, "ram": False, "net": False}
     STRESS_STATE["ram"] = True

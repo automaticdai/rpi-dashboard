@@ -56,11 +56,11 @@ def test_invalid_requests(kw):
 def test_stop_and_status():
     r = Runner(active={"rpidash-stress-net"})
     s = stress(r)
-    assert s.status() == {"cpu": False, "ram": False, "net": True}
+    assert s.status() == {"cpu": False, "ram": False, "disk": False, "net": True}
     s.stop()
     assert {tuple(c) for c in r.calls if c[1] == "stop"} == {
         ("systemctl", "stop", "rpidash-stress-cpu"), ("systemctl", "stop", "rpidash-stress-ram"),
-        ("systemctl", "stop", "rpidash-stress-net")}
+        ("systemctl", "stop", "rpidash-stress-disk"), ("systemctl", "stop", "rpidash-stress-net")}
 
 
 
@@ -111,7 +111,8 @@ def test_mirror_urls_are_https_package_mirrors():
 
 def test_stress_units_are_sandboxed():
     r = Runner()
-    stress(r).start(cpu=True, ram=True, net=True, minutes=1)
+    stress(r).start(cpu=True, ram=True, net=True, disk=True, minutes=1)
+    assert len([c for c in r.calls if c[0] == "systemd-run"]) == 4
     for c in (c for c in r.calls if c[0] == "systemd-run"):
         for prop in ("--property=DynamicUser=yes", "--property=ProtectSystem=strict",
                      "--property=ProtectHome=yes", "--property=NoNewPrivileges=yes"):
@@ -140,4 +141,53 @@ def test_runner_exceptions_become_stress_errors():
 
     with pytest.raises(StressError):
         stress(boom).start(cpu=True, ram=False, net=False, minutes=1)
-    assert stress(boom).status() == {"cpu": False, "ram": False, "net": False}
+    assert stress(boom).status() == {"cpu": False, "ram": False, "disk": False, "net": False}
+
+
+def test_disk_unit_gets_a_cache_dir_and_ram_unit_dies_first():
+    r = Runner()
+    stress(r).start(cpu=False, ram=True, net=False, disk=True, minutes=2)
+    runs = [c for c in r.calls if c[0] == "systemd-run"]
+    disk = next(c for c in runs if "--unit=rpidash-stress-disk" in c)
+    assert "--property=CacheDirectory=rpidash-stress" in disk and disk[-1] == "disk"
+    ram = next(c for c in runs if "--unit=rpidash-stress-ram" in c)
+    assert "--property=OOMScoreAdjust=1000" in ram
+    assert "--property=CacheDirectory=rpidash-stress" not in ram
+
+
+def test_ram_plan_holds_70_percent_across_workers():
+    from rpidash_agent.stress_load import CHUNK, ram_plan
+    avail = 4 * 1024 * CHUNK // 16  # 4 GiB
+    workers, per = ram_plan(avail, cores=4)
+    assert workers == 4
+    assert 0.65 < workers * per * CHUNK / avail <= 0.70
+    assert ram_plan(avail, cores=1)[0] == 1
+    workers, per = ram_plan(10 * CHUNK, cores=4)  # tiny box: never more than 70%, still 2+ blocks to copy between
+    assert per >= 2 and workers * per <= 7
+
+
+def test_sweep_rewrites_every_block():
+    from rpidash_agent.stress_load import sweep
+    blocks = [bytearray(b"\x01" * 64), bytearray(64), bytearray(64)]
+    sweep(blocks, rounds=1)
+    assert all(b[1:] == b"\x01" * 63 for b in blocks)  # the data went all the way round
+    assert blocks[0][0] == 2  # and changed, so the next pass writes new values
+
+
+def test_disk_file_size_is_capped():
+    from rpidash_agent.stress_load import DISK_FILE_MAX, MiB, disk_file_size
+    assert disk_file_size(100 * 1024 * MiB) == DISK_FILE_MAX
+    assert disk_file_size(1000 * MiB) == 100 * MiB  # 10% of free space
+    with pytest.raises(SystemExit):
+        disk_file_size(100 * MiB)
+
+
+def test_disk_round_writes_and_reads_the_file(tmp_path):
+    import random
+    from rpidash_agent.stress_load import MiB, disk_round
+    path = str(tmp_path / "stress.tmp")
+    try:
+        disk_round(path, 4 * MiB, random.Random(1), rand_seconds=0.05)
+    except OSError as e:  # O_DIRECT isn't supported by every filesystem (tmpfs)
+        pytest.skip(f"no O_DIRECT here: {e}")
+    assert (tmp_path / "stress.tmp").stat().st_size == 4 * MiB

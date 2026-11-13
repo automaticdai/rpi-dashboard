@@ -52,8 +52,11 @@ by its lowest-performing Pi (1.0×).
 
 ### Stress
 
-Start a CPU, RAM and/or network load on the ticked Pis and watch them live: CPU, RAM,
-temperature and network, read every 2 seconds, one line per Pi. The network load downloads
+Start a CPU, RAM, disk and/or network load on the ticked Pis and watch them live: CPU, RAM,
+temperature, disk I/O and network, read every 2 seconds, one line per Pi. The RAM load fills
+70% of free memory and keeps copying through it, so the memory bus is busy, not just the
+space taken. The disk load writes and reads a file of up to 512 MB (sequential, then random
+4K) with the page cache bypassed; it wears SD cards, so use it sparingly. The network load downloads
 large package-index files from Debian and Ubuntu mirrors in rotation (mirrors exist to serve
 big downloads). Every load stops by itself after the time you choose (1 to 30 minutes), or
 when you press Stop.

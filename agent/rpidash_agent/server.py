@@ -167,7 +167,8 @@ def make_server(cfg: AgentConfig, history: History, services: Services, *, host:
                         return self._send(202, {"job": jobs.start(tests)})
                     minutes = body.get("minutes", 5)
                     return self._send(200, stress.start(cpu=bool(body.get("cpu")), ram=bool(body.get("ram")),
-                                                        net=bool(body.get("net")), minutes=minutes))
+                                                        net=bool(body.get("net")), disk=bool(body.get("disk")),
+                                                        minutes=minutes))
                 except ValueError as e:
                     return self._send(400, {"error": str(e)})
                 except (BenchError, StressError) as e:

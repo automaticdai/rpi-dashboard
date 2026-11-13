@@ -66,7 +66,7 @@ def test_full_week_memory():
     for i in range(60480):
         h.append(s(i * 10))
     assert len(h) == 60480
-    assert h.nbytes() < 4_500_000  # ~68 bytes/sample; the binding limit is agent RSS < 50 MB
+    assert h.nbytes() < 5_000_000  # ~80 bytes/sample; the binding limit is agent RSS < 50 MB
 
 
 def test_query_speed():
