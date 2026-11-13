@@ -365,8 +365,21 @@ function applyLayout() {
 // ---------- drag to reorder ----------
 let dragging = null;
 
+// Pis that aren't online sit after the online ones; each group keeps the saved order.
+const isUp = (p) => p.status === "online";
+const displayOrder = (pis) => [...pis.filter(isUp), ...pis.filter((p) => !isUp(p))];
+
+// The saved order with each group's slots refilled in the order the cards now show, so moving
+// cards never writes "offline last" into it: a Pi that comes back returns to its old place.
+function mergedOrder(saved, shownIds) {
+  const up = new Set(saved.filter(isUp).map((p) => p.id));
+  const queue = { true: shownIds.filter((id) => up.has(id)), false: shownIds.filter((id) => !up.has(id)) };
+  return saved.map((p) => queue[up.has(p.id)].shift() ?? p.id);
+}
+
 async function saveOrder() {
-  const ids = [...document.querySelectorAll("#pis .card")].map((c) => c.dataset.id);
+  const shown = [...document.querySelectorAll("#pis .card")].map((c) => c.dataset.id);
+  const ids = lastPis ? mergedOrder(lastPis, shown) : shown;
   try { await api("PUT", "/api/order", { ids }); } catch (e) { toast(`Couldn't save the order: ${e.message}`); }
 }
 
@@ -434,8 +447,9 @@ function renderPis(pis) {
   const grid = $("#pis");
   const focusedGrip = document.activeElement && document.activeElement.closest(".grip") &&
     document.activeElement.closest(".card").dataset.id;
-  if (layout === "table") grid.replaceChildren(pisTable(pis));
-  else grid.replaceChildren(...pis.map(layout === "list" ? listRow : card));
+  const shown = displayOrder(pis);
+  if (layout === "table") grid.replaceChildren(pisTable(shown));
+  else grid.replaceChildren(...shown.map(layout === "list" ? listRow : card));
   updateBulkBar();
   if (focusedGrip) grid.querySelector(`.card[data-id="${CSS.escape(focusedGrip)}"] .grip`)?.focus();
   $("#empty").hidden = pis.length > 0;
