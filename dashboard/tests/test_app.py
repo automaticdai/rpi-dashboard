@@ -415,3 +415,12 @@ def test_mem_benchmark_accepted(make_client):
     with c:
         assert c.post("/api/bench", json={"ids": ["A"], "tests": ["cpu", "mem"]}).json() == {"A": {"started": True}}
     assert fake.posted[-1] == ("/bench", {"tests": ["cpu", "mem"]})
+
+
+def test_picos_are_left_out_of_the_benchmark_table(make_client):
+    pico = make_pi("P", "10.0.0.2")
+    pico.spec = {"kind": "mcu", "model": "Raspberry Pi Pico 2 W"}
+    c, _, _ = make_client({"10.0.0.1": "ok", "10.0.0.2": "ok"}, pis=[make_pi("A", "10.0.0.1"), pico])
+    with c:
+        rows = c.get("/api/bench").json()["rows"]
+    assert [r["id"] for r in rows] == ["A"]

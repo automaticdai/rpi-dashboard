@@ -67,6 +67,12 @@ function heat(t) {
 }
 
 const memPct = (s) => (s && s.mem_total ? (s.mem_used / s.mem_total) * 100 : null);
+
+// A Raspberry Pi Pico (microcontroller): no OS, so no CPU %, network counters, fan, services,
+// processes, storage health, benchmarks, stress or shutdown. Its RAM is the MicroPython heap.
+const isMcu = (spec) => (spec || {}).kind === "mcu";
+const NOT_ON_PICO = "not available on a Pico";
+const wifiText = (dbm) => (typeof dbm === "number" ? `Wi-Fi ${dbm} dBm` : "Wi-Fi");
 const level = (v) => (v == null ? "" : v >= 90 ? "crit" : v >= 75 ? "high" : "");
 
 // Pi RAM is sold in power-of-two sizes; the kernel reports a bit less (e.g. 7.6 GiB on an 8 GB board).
@@ -80,10 +86,16 @@ function ramSize(n) {
   return mib >= 1024 ? `${mib / 1024} GB` : `${mib} MB`;
 }
 
+// RAM to show as the total: a Pi's sold size, or a Pico's heap as it is (not rounded up to 1 MB).
+function ramTotal(spec, s) {
+  const n = spec.ram_total || (s && s.mem_total);
+  return isMcu(spec) ? n || null : ramBytes(n);
+}
+
 // "2.1 of 8 GB": both numbers in the total's unit.
 function usedOf(used, total) {
   if (used == null || !total) return "";
-  const unit = total >= 2 ** 30 ? [2 ** 30, "GB"] : [2 ** 20, "MB"];
+  const unit = total >= 2 ** 30 ? [2 ** 30, "GB"] : total >= 2 ** 20 ? [2 ** 20, "MB"] : [2 ** 10, "KB"];
   const fmt = (v) => (v < 10 ? String(Number(v.toFixed(1))) : String(Math.round(v)));
   return `${fmt(used / unit[0])} of ${fmt(total / unit[0])} ${unit[1]}`;
 }
@@ -109,6 +121,7 @@ function modelShort(model) {
   let m = model.replace(/^Raspberry /, "").replace(/ Rev [\d.]+$/, "");
   m = m.replace(/^Pi Compute Module (\d+)(.*)$/, "CM$1$2").replace(/^(CM\d+) Plus$/, "$1+");
   m = m.replace(/^Pi 5 Model B$/, "Pi 5");                        // the Pi 5 only comes as a B
+  m = m.replace(/^Pi Pico/, "Pico");                              // "Raspberry Pi Pico 2 W" -> "Pico 2 W"
   m = m.replace(/ Model ([AB]) Plus$/, "$1+").replace(/ Model ([AB])$/, "$1");
   return m;
 }
@@ -126,7 +139,7 @@ function hardwareLine(spec, s) {
   const parts = [];
   if (spec.os) parts.push(osShort(spec.os));
   if (spec.cores) parts.push(`${spec.cores} core${spec.cores === 1 ? "" : "s"}`);
-  const ram = ramSize(spec.ram_total || (s && s.mem_total));
+  const ram = isMcu(spec) ? spec.ram_total && bytes(spec.ram_total) : ramSize(spec.ram_total || (s && s.mem_total));
   if (ram) parts.push(`${ram} RAM`);
   if (spec.root_size) parts.push(`${bytes(spec.root_size)} ${storageKind(spec)}`);
   return parts.join(", ");
@@ -157,8 +170,11 @@ function card(p) {
   const h = s && heat(s.temp_c);
   if (h) el.style.setProperty("--heat", h);
   let body;
-  if (s) {
-    body = `<div class="bars">${bar("CPU", s.cpu_pct)}${bar("RAM", memPct(s), usedOf(s.mem_used, ramBytes(spec.ram_total || s.mem_total)))}${bar("Disk", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size))}</div>
+  if (s && isMcu(spec)) {
+    body = `<div class="bars">${bar("RAM", memPct(s), usedOf(s.mem_used, ramTotal(spec, s)))}${bar("Flash", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size))}</div>
+      <div class="meta"><span>${wifiText(s.wifi_dbm)}</span><span>up ${duration(p.live.uptime_s)}</span></div>`;
+  } else if (s) {
+    body = `<div class="bars">${bar("CPU", s.cpu_pct)}${bar("RAM", memPct(s), usedOf(s.mem_used, ramTotal(spec, s)))}${bar("Disk", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size))}</div>
       <div class="meta"><span>↓ ${rate(s.net_rx_bps)}</span><span>↑ ${rate(s.net_tx_bps)}</span><span>up ${duration(p.live.uptime_s)}</span>${typeof s.power_w === "number" ? `<span title="${POWER_NOTE}">${watts(s.power_w)}</span>` : ""}</div>`;
   } else {
     body = `<div class="meta"><span>${esc(spec.os || "")}</span><span>last seen ${ago(p.last_seen)}</span></div>`;
@@ -263,10 +279,10 @@ function listRow(p) {
     <span class="cell name"><span class="dot ${p.status}"></span><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a>
       <span class="sub">${esc(spec.model || p.host)}<br>${esc(hardwareLine(spec, s))}</span></span>
     <span class="cell temp num">${s ? temp(s.temp_c) : "–"}</span>
-    ${s ? usage("CPU", s.cpu_pct, "") : `<span class="cell"></span>`}
-    ${s ? usage("RAM", memPct(s), usedOf(s.mem_used, ramBytes(spec.ram_total || s.mem_total))) : `<span class="cell"></span>`}
-    ${s ? usage("Disk", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size)) : `<span class="cell"></span>`}
-    <span class="cell net">${s ? `↓ ${rate(s.net_rx_bps)}<br>↑ ${rate(s.net_tx_bps)}` : ""}</span>
+    ${s && !isMcu(spec) ? usage("CPU", s.cpu_pct, "") : `<span class="cell"></span>`}
+    ${s ? usage("RAM", memPct(s), usedOf(s.mem_used, ramTotal(spec, s))) : `<span class="cell"></span>`}
+    ${s ? usage(isMcu(spec) ? "Flash" : "Disk", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size)) : `<span class="cell"></span>`}
+    <span class="cell net">${!s ? "" : isMcu(spec) ? esc(wifiText(s.wifi_dbm)) : `↓ ${rate(s.net_rx_bps)}<br>↑ ${rate(s.net_tx_bps)}`}</span>
     <span class="cell uptime">${s ? duration(p.live.uptime_s) : ""}</span>
     <span class="cell status">${status}</span>
     <button class="small remove" title="Remove from this dashboard">Remove</button>`;
@@ -300,8 +316,8 @@ const TABLE_COLS = [
   ["cpu", "CPU %", (p) => smp(p).cpu_pct, (p) => fixed(smp(p).cpu_pct, 0), true],
   ["load", "Load", (p) => smp(p).load1, (p) => fixed(smp(p).load1, 2), true],
   ["ram", "RAM", (p) => smp(p).mem_used, (p) => {
-    const total = ramBytes((p.spec || {}).ram_total || smp(p).mem_total);
-    return typeof smp(p).mem_used === "number" ? usedOf(smp(p).mem_used, total) : (total ? `<span class="of">${ramSize(total)}</span>` : "–");
+    const total = ramTotal(p.spec || {}, smp(p));
+    return typeof smp(p).mem_used === "number" ? usedOf(smp(p).mem_used, total) : (total ? `<span class="of">${isMcu(p.spec) ? bytes(total) : ramSize(total)}</span>` : "–");
   }, true],
   ["rampct", "RAM %", (p) => memPct(smp(p)), (p) => fixed(memPct(smp(p)), 0), true],
   ["disk", "Disk", (p) => diskUsed(p), (p) => {
@@ -309,7 +325,8 @@ const TABLE_COLS = [
     return diskUsed(p) != null ? usedOf(diskUsed(p), size) : (size ? `<span class="of">${bytes(size)}</span>` : "–");
   }, true],
   ["diskpct", "Disk %", (p) => smp(p).disk_pct, (p) => fixed(smp(p).disk_pct, 0), true],
-  ["net", "Network", (p) => smp(p).net_rx_bps, (p) => (p.live ? `↓ ${rate(smp(p).net_rx_bps)} ↑ ${rate(smp(p).net_tx_bps)}` : "–"), true],
+  ["net", "Network", (p) => smp(p).net_rx_bps, (p) => (!p.live ? "–" : isMcu(p.spec) ? esc(wifiText(smp(p).wifi_dbm))
+    : `↓ ${rate(smp(p).net_rx_bps)} ↑ ${rate(smp(p).net_tx_bps)}`), true],
   ["power", "Power", (p) => smp(p).power_w, (p) => (typeof smp(p).power_w === "number" ? `<span title="${POWER_NOTE}">${watts(smp(p).power_w)}</span>` : "–"), true],
   ["fan", "Fan rpm", (p) => smp(p).fan_rpm, (p) => (typeof smp(p).fan_rpm === "number" ? String(smp(p).fan_rpm) : "–"), true],
   ["uptime", "Uptime", (p) => p.live && p.live.uptime_s, (p) => (p.live ? duration(p.live.uptime_s) : "–"), true],
@@ -618,10 +635,12 @@ async function loadHistory(id) {
   try { h = await api("GET", `/api/pis/${encodeURIComponent(id)}/history?range=${currentRange}`); }
   catch (e) { $("#since").textContent = `History unavailable: ${e.message}`; return; }
   const labels = h.ts.map((t) => timeLabel(t, currentRange));
-  const set = (c, ...series) => { c.data.labels = labels; series.forEach((s, i) => (c.data.datasets[i].data = s)); c.update(); };
+  // A Pico's history only has the series it measures; treat the rest as empty.
+  const set = (c, ...series) => { c.data.labels = labels; series.forEach((s, i) => (c.data.datasets[i].data = s || [])); c.update(); };
+  const memTotal = h.mem_total || [];
   set(charts.temp, h.temp_c);
   set(charts.cpu, h.cpu_pct);
-  set(charts.mem, h.mem_used.map((u, i) => (h.mem_total[i] ? (u / h.mem_total[i]) * 100 : null)));
+  set(charts.mem, (h.mem_used || []).map((u, i) => (memTotal[i] ? (u / memTotal[i]) * 100 : null)));
   set(charts.disk, h.disk_pct);
   set(charts.net, h.net_rx_bps, h.net_tx_bps);
   const wifi = h.wifi_dbm || [];
@@ -650,7 +669,11 @@ function renderLive(p) {
   dot.className = `dot ${p.status}`;
   dot.title = STATUS_TEXT[p.status];
   const s = p.live && p.live.sample;
-  const rows = s ? [
+  const rows = s && isMcu(p.spec) ? [
+    ["Status", STATUS_TEXT[p.status]], ["Temperature", `${temp(s.temp_c)} (chip sensor, ±2°)`],
+    ["RAM", `${bytes(s.mem_used)} of ${bytes(s.mem_total)} (MicroPython heap)`], ["Flash", pct(s.disk_pct)],
+    ["Link", linkText(p.live.link)], ["Uptime", duration(p.live.uptime_s)],
+  ] : s ? [
     ["Status", STATUS_TEXT[p.status]], ["Temperature", temp(s.temp_c)], ["CPU", `${pct(s.cpu_pct)} (load ${fixed(s.load1, 2)})`],
     ["RAM", `${bytes(s.mem_used)} of ${bytes(s.mem_total)}`], ["Swap", bytes(s.swap_used)], ["Disk", pct(s.disk_pct)],
     ["Link", linkText(p.live.link)],
@@ -683,18 +706,31 @@ function renderSpec(spec) {
   const ifaces = (spec.interfaces || []).map((i) => `${i.name}: ${i.ipv4 || "no IPv4"}${i.mac ? ` (${i.mac})` : ""}`).join("\n");
   const rows = [
     ["Model", spec.model], ["CPU", `${spec.cpu} (${spec.cores} cores)`], ["RAM", bytes(spec.ram_total)],
-    ["Storage", `${bytes(spec.root_size)} ${storageKind(spec)} (${spec.root_device || "unknown device"})`], ["OS", spec.os], ["Kernel", `${spec.kernel} (${spec.arch})`],
+    ["Storage", isMcu(spec) ? `${bytes(spec.root_size)} ${storageKind(spec)} (filesystem)` : `${bytes(spec.root_size)} ${storageKind(spec)} (${spec.root_device || "unknown device"})`],
+    ["OS", spec.os], isMcu(spec) ? ["Architecture", spec.arch] : ["Kernel", `${spec.kernel} (${spec.arch})`],
     ["Serial", spec.serial], ["Network", ifaces], ["Booted", spec.boot_time ? new Date(spec.boot_time * 1000).toLocaleString() : ""],
     ["Agent", spec.agent_version],
   ];
   $("#spec tbody").innerHTML = rows.filter(([, v]) => v).map(([k, v]) => `<tr><th>${k}</th><td style="white-space:pre-line">${esc(v)}</td></tr>`).join("");
 }
 
+// Hide what a Pico can't fill: the panels, the Shut down button and the CPU, network and fan charts.
+function hideForMcu() {
+  for (const sel of ["#services", "#top", "#storage", "#peripherals"]) $(sel).closest("section").hidden = true;
+  $("#shutdown").hidden = true;
+  for (const sel of ["#c-cpu", "#c-net", "#c-fan"]) $(sel).closest("figure").hidden = true;
+  $("#c-disk").closest("figure").querySelector("figcaption").textContent = "Flash %";
+}
+
 function detail(id, spec) {
   renderSpec(spec);
+  const mcu = isMcu(spec);
+  if (mcu) hideForMcu();
   const loadExtras = async () => {
-    api("GET", `/api/pis/${encodeURIComponent(id)}/storage`).then(renderStorage).catch(() => {});
-    api("GET", `/api/pis/${encodeURIComponent(id)}/peripherals`).then(renderPeripherals).catch(() => {});
+    if (!mcu) {
+      api("GET", `/api/pis/${encodeURIComponent(id)}/storage`).then(renderStorage).catch(() => {});
+      api("GET", `/api/pis/${encodeURIComponent(id)}/peripherals`).then(renderPeripherals).catch(() => {});
+    }
     api("GET", `/api/events?pi=${encodeURIComponent(id)}&days=30`).then((r) => {
       $("#pi-events tbody").innerHTML = eventRows(r.events.slice(0, 15), false, {});
       $("#no-events").hidden = r.events.length > 0;
@@ -818,11 +854,13 @@ function tickList(box, pis, name, stressStatus) {
   const prev = new Set([...box.querySelectorAll("input:checked")].map((i) => i.value));
   const first = box.children.length === 0;
   box.innerHTML = pis.map((p) => {
-    const on = first ? p.status === "online" : prev.has(p.id);
+    const usable = p.status === "online" && !isMcu(p.spec);
+    const on = first ? usable : prev.has(p.id) && !isMcu(p.spec); // a Pi that drops offline stays ticked
     const st = stressStatus && p.live && p.live.stress ? Object.entries(p.live.stress).filter(([, v]) => v).map(([k]) => esc(k)) : [];
     const extra = p.status !== "online" ? ` <span class="muted">(${STATUS_TEXT[p.status].toLowerCase()})</span>`
+      : isMcu(p.spec) ? ` <span class="muted">(${NOT_ON_PICO})</span>`
       : st.length ? ` <span class="chip warn">stress: ${st.join(", ")}</span>` : "";
-    return `<label><input type="checkbox" name="${name}" value="${esc(p.id)}" ${on ? "checked" : ""} ${p.status === "online" ? "" : "disabled"}> ${esc(p.hostname)}${extra}</label>`;
+    return `<label><input type="checkbox" name="${name}" value="${esc(p.id)}" ${on ? "checked" : ""} ${usable ? "" : "disabled"}> ${esc(p.hostname)}${extra}</label>`;
   }).join("");
 }
 
@@ -925,8 +963,8 @@ function stressPage() {
       const since = Date.now() - 10 * 60 * 1000;
       h.ts.forEach((t, i) => {
         if (t * 1000 < since) return;
-        const s = { cpu_pct: h.cpu_pct[i], mem_used: h.mem_used[i], mem_total: h.mem_total[i], temp_c: h.temp_c[i],
-                    net_rx_bps: h.net_rx_bps[i], power_w: (h.power_w || [])[i],
+        const s = { cpu_pct: (h.cpu_pct || [])[i], mem_used: (h.mem_used || [])[i], mem_total: (h.mem_total || [])[i],
+                    temp_c: (h.temp_c || [])[i], net_rx_bps: (h.net_rx_bps || [])[i], power_w: (h.power_w || [])[i],
                     disk_read_bps: (h.disk_read_bps || [])[i], disk_write_bps: (h.disk_write_bps || [])[i] };
         for (const [k, f] of Object.entries(LIVE_METRICS)) series[p.id].points[k].push({ x: t * 1000, y: f(s) });
       });

@@ -338,7 +338,8 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
 
         rows = [{"id": p.id, "hostname": p.hostname, "model": (p.spec or {}).get("model"),
                  "root_size": (p.spec or {}).get("root_size"),
-                 "results": known(bench.results(p.id))} for p in registry.all()]
+                 "results": known(bench.results(p.id))} for p in registry.all()
+                if (p.spec or {}).get("kind") != "mcu"]  # a Pico (microcontroller) can't run them
         return {"rows": rows, "running": running}
 
     @app.get("/api/now")

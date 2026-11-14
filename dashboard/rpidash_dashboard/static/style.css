@@ -228,6 +228,7 @@ td.stale { color: var(--off); text-decoration: line-through; text-decoration-thi
 .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .charts { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
 .charts figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; height: 230px; display: flex; flex-direction: column; }
+.charts figure[hidden] { display: none; } /* display:flex above would otherwise beat the hidden attribute */
 .charts figcaption { font-size: .9rem; color: var(--muted); }
 .charts canvas { flex: 1; min-height: 0; }
 

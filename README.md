@@ -153,6 +153,32 @@ Install into `/opt/rpidash-dashboard/venv`, put the config at `/etc/rpidash/dash
 `allowed_hosts` set to the names and IPs you'll browse to (for example
 `["rpi-5", "192.168.0.23"]`), and use `dashboard/rpidash-dashboard.service`.
 
+## Add a Pico 2 W
+
+A Raspberry Pi Pico 2 W can show on the dashboard too. `pico/` holds a small MicroPython
+agent that speaks the same protocol on port 8765 with the same token. It reports chip
+temperature, RAM (the MicroPython heap), flash used, Wi-Fi signal and uptime, and keeps
+history for 7 days (in RAM, so a reset clears it). The dashboard gives it its own card and
+a shorter detail page. Things a microcontroller can't do (shut down, services, benchmarks,
+stress) are hidden in the dashboard and refused by the Pico with a clear message.
+
+The Pico is plugged by USB into one of the Pis (`rpi-5` by default; set `PICO_HOST` to use
+another), and the code is uploaded through that Pi:
+
+1. On that Pi, install mpremote: `python3 -m venv ~/pico/.venv && ~/pico/.venv/bin/pip install mpremote`.
+2. Flash MicroPython 1.29 or later (the `RPI_PICO2_W` UF2): hold BOOTSEL while plugging it
+   in, or, if it already runs MicroPython, `~/pico/.venv/bin/mpremote bootloader`; then copy
+   the UF2 to the `RP2350` drive.
+3. On the desktop, copy `pico/wifi_config.example.py` to `pico/wifi_config.py` (it's
+   gitignored) and fill in your Wi-Fi name, password, country code and hostname.
+4. Run `./pico/dev.sh`. It uploads the code and your dashboard token (as `token.txt`),
+   resets the Pico and shows its output (Ctrl-] to leave). `./pico/dev.sh repl` opens the
+   REPL only. Connecting with mpremote stops the program on the Pico; reset it to start again.
+5. Add it on the dashboard by its hostname or IP, like a Pi.
+
+The Pico's version (`VERSION` in `pico/main.py`) is separate from the Pis' and is checked
+against `EXPECTED_PICO_VERSION` in `dashboard/rpidash_dashboard/__init__.py`.
+
 ## Change the token
 
 ```sh
@@ -165,6 +191,7 @@ switch the desktop over: the new token becomes `~/.config/rpidash/token` (the ol
 as `token.old`) and `dashboard.toml` is updated; then restart the dashboard. If some Pis
 fail, the new token waits in `token.new`, and `./deploy.sh --rotate-token <those Pis>` reuses
 it. Until the dashboard restarts, Pis that already have the new token show **Token rejected**.
+A Pico isn't reached by `deploy.sh`: run `./pico/dev.sh` again after rotating.
 
 ## Versions
 

@@ -1,19 +1,53 @@
-"""Runs at boot: join Wi-Fi, serve /health on :8765, reconnect whenever the link drops."""
+"""Runs at boot: join Wi-Fi, set the clock, take a reading every 10 s, serve the rpidash agent API."""
 import asyncio
+import gc
+import time
+
+import ntptime
 from machine import Pin
 
-import server
+import metrics
 import wifi
+from server import DEVICE_ID, Server
 from wifi_config import COUNTRY, HOSTNAME, PASSWORD, SSID
 
+VERSION = "pico-0.2.0"
+NTP_EVERY_S = 6 * 3600  # the Pico's clock drifts a few seconds a day
+
 led = Pin("LED", Pin.OUT)
+
+
+def read_token():
+    try:
+        with open("token.txt") as f:
+            return f.read().strip()
+    except OSError:
+        print("no token.txt: only /health will answer")
+        return ""
+
+
+class Agent:
+    def __init__(self):
+        self.hostname, self.version = HOSTNAME, VERSION
+        self.history = metrics.History()
+        self.latest = None
+        self.boot_time = None  # Unix time of power-up, known once NTP has set the clock
+
+    def uptime(self):
+        return time.ticks_ms() // 1000 if self.boot_time is None else time.time() - self.boot_time
+
+    def fresh_sample(self):
+        return metrics.sample(time.time())
+
+    def spec(self):
+        return metrics.spec(DEVICE_ID, self.hostname, self.version, self.boot_time)
 
 
 async def join():
     delay = 2
     while True:
         try:
-            ip = wifi.connect(SSID, PASSWORD, country=COUNTRY, hostname=HOSTNAME)
+            ip = await wifi.connect(SSID, PASSWORD, country=COUNTRY, hostname=HOSTNAME)
             print("Wi-Fi connected:", ip)
             led.on()
             return
@@ -24,16 +58,49 @@ async def join():
             delay = min(delay * 2, 60)
 
 
-async def main():
-    await join()
-    await server.serve(HOSTNAME)
-    print("serving http://%s:%d/health" % (wifi.ip(), server.PORT))
+async def keep_connected():
     while True:
         await asyncio.sleep(10)
         if not wifi.is_connected():
             print("Wi-Fi lost, reconnecting")
             led.off()
             await join()
+
+
+async def keep_time(agent):
+    while True:
+        try:
+            ntptime.settime()  # one UDP round trip, ~1 s timeout: short enough to block
+            if agent.boot_time is None:
+                agent.boot_time = time.time() - time.ticks_ms() // 1000
+            print("clock set:", time.gmtime())
+            await asyncio.sleep(NTP_EVERY_S)
+        except OSError as e:
+            print("NTP:", e)
+            await asyncio.sleep(30)
+
+
+async def sample_loop(agent):
+    while not metrics.epoch_ok():  # readings need real timestamps
+        await asyncio.sleep(1)
+    next_t = time.time()
+    while True:
+        s = metrics.sample(time.time())
+        agent.latest = s
+        agent.history.add(s)
+        gc.collect()  # keep the heap reading steady and fragmentation low
+        next_t += metrics.INTERVAL_S
+        await asyncio.sleep(min(metrics.INTERVAL_S, max(1, next_t - time.time())))  # clock jumps (NTP) never stall it
+
+
+async def main():
+    agent = Agent()
+    await join()
+    asyncio.create_task(keep_time(agent))
+    asyncio.create_task(sample_loop(agent))
+    await Server(agent, read_token()).serve()
+    print("serving http://%s:8765" % wifi.ip())
+    await keep_connected()
 
 
 asyncio.run(main())
