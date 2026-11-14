@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ pi.hostname }} · Pi fleet{% endblock %}
+{% block title %}{{ pi.hostname }} · RPi Dash{% endblock %}
 {% block header %}
   <h1 class="pi-title"><span id="status-dot" class="dot"></span>{{ pi.hostname }}</h1>
   <span class="summary">{{ (pi.spec or {}).get("model", "") }} at {{ pi.host }}</span>
