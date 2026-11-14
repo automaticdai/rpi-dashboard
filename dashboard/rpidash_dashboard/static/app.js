@@ -617,7 +617,7 @@ function initCharts(mcu = false) {
   const accent = cssVar("--accent"), bad = cssVar("--bad"), ok = cssVar("--ok");
   charts.temp = makeChart("c-temp", [{ label: "°C", borderColor: bad }]);
   charts.cpu = mcu
-    ? makeChart("c-cpu", [{ label: "Core 0 (agent)", borderColor: accent }, { label: "Core 1 (app)", borderColor: ok }], { min: 0, max: 100 })
+    ? makeChart("c-cpu", [{ label: "Core 0", borderColor: accent }, { label: "Core 1", borderColor: ok }], { min: 0, max: 100 })
     : makeChart("c-cpu", [{ label: "CPU", borderColor: accent }], { min: 0, max: 100 });
   charts.mem = makeChart("c-mem", [{ label: "RAM", borderColor: accent }], { min: 0, max: 100 });
   charts.disk = makeChart("c-disk", [{ label: "Disk", borderColor: accent }], { min: 0, max: 100 });
@@ -709,10 +709,10 @@ function renderLive(p) {
   $("#top tbody").innerHTML = top.map((t) => `<tr><td>${esc(t.name)} <span class="muted">${esc(t.pid)}</span></td><td class="num">${fixed(t.cpu_pct, 1)}%</td><td class="num">${fixed(t.mem_pct, 1)}%</td></tr>`).join("");
 }
 
-// A Pico: core 0 runs the agent, core 1 the application (app.py).
+// A Pico: core 0 runs the agent, and the application (app.py) on core 0 or core 1.
 function coresText(s) {
   const c = Array.isArray(s.cpu_cores) ? s.cpu_cores : [];
-  return c.length === 2 ? `${pct(s.cpu_pct)} (core 0, agent: ${pct(c[0])}; core 1, app: ${pct(c[1])})` : pct(s.cpu_pct);
+  return c.length === 2 ? `${pct(s.cpu_pct)} (core 0: ${pct(c[0])}, core 1: ${pct(c[1])})` : pct(s.cpu_pct);
 }
 
 const APP_STATE = { starting: "Starting", running: "Running", crashed: "Crashed", stuck: "Not responding (stuck in setup() or step())",
@@ -723,13 +723,14 @@ function renderApp(p) {
   const sec = $("#app").closest("section");
   sec.hidden = !(a && typeof a === "object");
   if (sec.hidden) return;
-  const cores = (p.live.sample || {}).cpu_cores;
+  const core = a.core === 1 ? 1 : 0;
+  $("#app-title").textContent = `Application (core ${core}${core === 1 ? ", experimental" : ", with the agent"})`;
   const bad = a.state === "crashed" || a.state === "stuck";
   const rows = [
     ["Name", a.name], ["State", APP_STATE[a.state] || a.state],
     ["Running for", duration(a.uptime_s)],
     ["Steps", `${typeof a.steps === "number" ? a.steps.toLocaleString() : "–"} (every ${a.period_ms} ms)`],
-    ["Core 1 CPU", Array.isArray(cores) ? pct(cores[1]) : "–"],
+    ["CPU", `${pct(a.cpu_pct)} of core ${core}`],
     ["Restarts", a.restarts],
     ...Object.entries(a.values && typeof a.values === "object" ? a.values : {}).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v]),
   ];

@@ -6,7 +6,7 @@ import time
 import ntptime
 from machine import Pin
 
-import core1
+import runner
 import cpuload
 import metrics
 import wifi
@@ -89,7 +89,8 @@ async def sample_loop(agent):
         await asyncio.sleep(1)
     next_t = time.time()
     while True:
-        cores = (cpuload.core0_pct(), agent.runner.cpu_pct() if agent.runner else 0.0)
+        app_pct = agent.runner.cpu_pct() if agent.runner else 0.0  # an app on core 0 counts in core 0's figure
+        cores = (cpuload.core0_pct(), app_pct if agent.runner and agent.runner.core == 1 else 0.0)
         s = metrics.sample(time.time(), cores)
         agent.latest = s
         agent.history.add(s)
@@ -116,7 +117,7 @@ def start_app(agent):
                 raise err
 
             step = setup
-    agent.runner = core1.Runner(app)
+    agent.runner = runner.Runner(app)
     agent.runner.start()
 
 
@@ -138,4 +139,4 @@ finally:
     # Ctrl-C (mpremote connecting) or an error: stop core 1 before the REPL or a soft reset runs,
     # or the next reset can hang with the app still running there.
     if AGENT.runner and not AGENT.runner.close():
-        print("the app on core 1 didn't stop; press reset if the board hangs")
+        print("the app didn't stop; press reset if the board hangs")

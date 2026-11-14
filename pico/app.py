@@ -1,4 +1,4 @@
-"""Your application. It runs on core 1; the rpidash agent (Wi-Fi, web server) runs on core 0.
+"""Your application. It runs next to the rpidash agent (Wi-Fi, web server).
 
     setup(values)   runs once at start and after each restart from the dashboard
     step(values)    runs every PERIOD_MS; keep it short and return (don't loop forever in it)
@@ -7,18 +7,24 @@
 `values` is a dict you fill with numbers or short strings; the dashboard shows them on the
 Pico's page (refreshed about once a second). Crashes are caught and shown there too.
 
-Rules for core 1:
-  - Don't use Wi-Fi or sockets here, and don't touch Pin("LED"): on the Pico W the LED is wired
-    to the Wi-Fi chip. Use GPIO pins, I2C, SPI, UART, PWM and ADC 0-2 freely.
-  - The heap is shared with core 0: avoid creating objects every step in fast loops (reuse
-    buffers), or memory clean-ups will pause the loop now and then.
+Which core:
+  CORE = 0 (default, recommended): step() takes turns with the agent on core 0. Reliable. A slow
+      step() delays the web server, and steps can start tens of ms late while it answers
+      requests, so keep each step to a few ms.
+  CORE = 1 (experimental): step() runs on its own core, with ~1 ms timing. But with MicroPython
+      1.29, a busy thread on core 1 plus Wi-Fi traffic has hard-locked the Pico (it needed
+      unplugging), and even a light one makes the agent use about twice the CPU. Only for
+      light, timing-critical code. Rules on core 1: no Wi-Fi or sockets, no print(), don't touch
+      Pin("LED") (it's on the Wi-Fi chip), and avoid creating objects every step.
 
-This placeholder measures its own timing: how late each step starts, which shows how steady
-core 1 is while core 0 serves the dashboard.
+Either way: use GPIO pins, I2C, SPI, UART, PWM and ADC 0-2 freely.
+
+This placeholder measures its own timing: how late each step starts.
 """
 import time
 
 NAME = "Timing demo"
+CORE = 0
 PERIOD_MS = 10
 
 _last = 0

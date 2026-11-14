@@ -1,9 +1,10 @@
-"""Runs the application (app.py) on core 1, apart from the agent on core 0.
+"""Runs the application (app.py): on core 0 as an asyncio task next to the agent (app.CORE = 0,
+the default), or on core 1 as a thread (app.CORE = 1).
 
 The runner calls app.setup(values) once, then app.step(values) every app.PERIOD_MS, catches a
-crash instead of letting it end the thread, and restarts the app when asked (inside the same
-thread, between two steps). The thread only ends when main.py stops (close()), so that core 1 is
-idle before the REPL or a soft reset takes over.
+crash instead of letting it end the thread, and restarts the app when asked (between two steps).
+On core 1 the thread only ends when main.py stops (close()), so that core 1 is idle before the
+REPL or a soft reset takes over.
 
 Nothing here prints: core 1 writing to USB serial (owned by core 0) can hang the Pico.
 """
@@ -31,6 +32,8 @@ class Runner:
         self.app = app
         self.name = getattr(app, "NAME", "app")
         self.period_ms = max(1, int(getattr(app, "PERIOD_MS", 1000)))
+        self.core = 1 if getattr(app, "CORE", 0) == 1 else 0
+        self.last_cpu_pct = None  # share of its core, over the last reading interval
         self.state = "starting"   # starting | running | crashed | restarting | stopped
         self.error = None
         self.restarts = 0
@@ -46,7 +49,20 @@ class Runner:
 
     # ---- called from core 0 ----
     def start(self):
-        _thread.start_new_thread(self._run, ())
+        if self.core == 1:
+            _thread.start_new_thread(self._thread, ())
+        else:
+            import asyncio
+            asyncio.create_task(self._task())
+
+    def _thread(self):
+        for wait_ms in self._run():
+            time.sleep_ms(wait_ms)
+
+    async def _task(self):
+        import asyncio
+        for wait_ms in self._run():
+            await asyncio.sleep_ms(wait_ms)  # 0 still lets the agent run
 
     def stuck(self):
         return self.state in ("starting", "running", "restarting") and \
@@ -62,26 +78,35 @@ class Runner:
     def close(self, wait_ms=1500):
         """Stop the app (calling its stop()) and end the thread; True once core 1 is idle."""
         self._closed = self._restart = True
+        if self.core == 0:  # the asyncio loop has already stopped: run stop() here
+            if self.state == "running" and hasattr(self.app, "stop"):
+                try:
+                    self.app.stop(self._live)
+                except Exception:
+                    pass
+            self.state = "stopped"
+            return True
         t = time.ticks_ms()
         while self.state != "stopped" and time.ticks_diff(time.ticks_ms(), t) < wait_ms:
             time.sleep_ms(10)
         return self.state == "stopped"
 
     def cpu_pct(self):
-        """Share of core 1 spent in setup()/step() since the last call."""
+        """Share of its core spent in setup()/step() since the last call."""
         now = time.ticks_ms()
         span = time.ticks_diff(now, self._window_ms)
         busy, self._busy_us, self._window_ms = self._busy_us, 0, now
-        return round(min(100.0, busy / 10 / span), 1) if span > 0 else 0.0
+        self.last_cpu_pct = round(min(100.0, busy / 10 / span), 1) if span > 0 else 0.0
+        return self.last_cpu_pct
 
     def status(self):
         state = "stuck" if self.stuck() else self.state
-        return {"name": self.name, "state": state, "error": self.error, "restarts": self.restarts,
-                "steps": self.steps, "period_ms": self.period_ms,
+        return {"name": self.name, "core": self.core, "state": state, "error": self.error, "restarts": self.restarts,
+                "steps": self.steps, "period_ms": self.period_ms, "cpu_pct": self.last_cpu_pct,
                 "uptime_s": time.ticks_diff(time.ticks_ms(), self._started_ms) // 1000,
                 "values": self.values}
 
-    # ---- core 1 ----
+    # ---- the app's side: generators yielding how long to wait (ms) ----
     def _timed(self, fn):
         t = time.ticks_us()
         try:
@@ -99,7 +124,7 @@ class Runner:
             try:
                 self._timed(self.app.setup)
                 self.state, self.error = "running", None
-                self._loop()
+                yield from self._loop()
                 self.state = "restarting"
                 if hasattr(self.app, "stop"):
                     self._timed(self.app.stop)
@@ -107,7 +132,7 @@ class Runner:
                 self.state, self.error = "crashed", _error_text(e)
                 self.values = dict(self._live)
                 while not self._restart:
-                    time.sleep_ms(100)
+                    yield 100
             if not self._closed:
                 self.restarts += 1
                 self.state = "starting"
@@ -125,7 +150,8 @@ class Runner:
             next_ms = time.ticks_add(next_ms, period)
             wait = time.ticks_diff(next_ms, now)
             if wait > 0:
-                time.sleep_ms(wait)
+                yield wait
             else:
                 next_ms = now  # overran: don't try to catch up
+                yield 0
         self.values = dict(self._live)
