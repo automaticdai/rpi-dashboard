@@ -71,7 +71,8 @@ class Server:
                          "services": [], "uptime_s": up, "agent_uptime_s": up, "stress": None,
                          "link": {"interface": "wlan0", "kind": "Wi-Fi",
                                   "signal_dbm": (a.latest or {}).get("wifi_dbm")},
-                         "storage_warnings": [], "app": a.runner.status() if a.runner else None}
+                         "storage_warnings": [], "app": a.runner.status() if a.runner else None,
+                         "reset_reason": a.reset_reason}
         rng = params.get("range", "1h")
         if rng not in _RANGES:
             return 400, {"error": "range must be one of %s" % sorted(_RANGES)}

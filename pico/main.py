@@ -1,19 +1,21 @@
 """Runs at boot: join Wi-Fi, set the clock, take a reading every 10 s, serve the rpidash agent API."""
 import asyncio
 import gc
+import sys
 import time
 
 import ntptime
 from machine import Pin
 
-import runner
 import cpuload
 import metrics
+import runner
+import watchdog
 import wifi
 from server import DEVICE_ID, Server
 from wifi_config import COUNTRY, HOSTNAME, PASSWORD, SSID
 
-VERSION = "pico-0.3.0"
+VERSION = "pico-0.4.0"
 NTP_EVERY_S = 6 * 3600  # the Pico's clock drifts a few seconds a day
 
 led = Pin("LED", Pin.OUT)
@@ -34,7 +36,9 @@ class Agent:
         self.history = metrics.History()
         self.latest = None
         self.boot_time = None  # Unix time of power-up, known once NTP has set the clock
-        self.runner = None     # the application on core 1
+        self.runner = None     # the application (app.py)
+        self.http = None
+        self.reset_reason = "watchdog" if watchdog.was_hang() else None  # did it reset itself after a hang?
 
     def uptime(self):
         return time.ticks_ms() // 1000 if self.boot_time is None else time.time() - self.boot_time
@@ -122,19 +126,29 @@ def start_app(agent):
 
 
 async def main(agent):
+    watchdog.arm()
+    asyncio.create_task(watchdog.keep_fed())
     cpuload.install()
     start_app(agent)
     await join()
     asyncio.create_task(keep_time(agent))
     asyncio.create_task(sample_loop(agent))
-    await Server(agent, read_token()).serve()
+    agent.http = await Server(agent, read_token()).serve()  # the asyncio server (its accept task)
     print("serving http://%s:8765" % wifi.ip())
     await keep_connected()
 
 
 AGENT = Agent()
+if AGENT.reset_reason:
+    print("reset by the watchdog: the Pico had hung")
 try:
     asyncio.run(main(AGENT))
+except KeyboardInterrupt:  # stopped on purpose (Ctrl-C, mpremote, dev.sh): keep the board up
+    watchdog.disarm()
+    raise
+except Exception as e:  # the agent died: the still-armed watchdog resets the board in 8 s
+    sys.print_exception(e)
+    print("agent stopped: the watchdog resets the Pico shortly")
 finally:
     # Ctrl-C (mpremote connecting) or an error: stop core 1 before the REPL or a soft reset runs,
     # or the next reset can hang with the app still running there.

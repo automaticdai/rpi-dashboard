@@ -183,6 +183,11 @@ core 1 plus Wi-Fi traffic has hard-locked the Pico. The Pico's page shows the ap
 the values it publishes and any crash, with a Restart button; CPU use is shown per core. A
 crash or a `step()` that never returns shows as a warning on the card.
 
+A hardware watchdog resets the Pico if the agent's loop stops for 8 s (a lock-up, or a
+`step()` that blocks core 0); it comes back on its own about 15 s later, and the dashboard
+shows **Reset itself after a hang** until its next reboot. Stopping the program with Ctrl-C
+or mpremote (as `dev.sh` does) switches the watchdog off first, so uploads and the REPL work.
+
 The Pico's version (`VERSION` in `pico/main.py`) is separate from the Pis' and is checked
 against `EXPECTED_PICO_VERSION` in `dashboard/rpidash_dashboard/__init__.py`.
 

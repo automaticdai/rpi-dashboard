@@ -148,10 +148,11 @@ function hardwareLine(spec, s) {
 const WARN_TEXT = { hot: "Running hot", disk: "Disk nearly full", mem: "RAM nearly full", throttled: "Throttled or under-voltage",
                     agent_outdated: "Agent out of date", wifi_weak: "Weak Wi-Fi", storage_readonly: "Disk read-only",
                     storage_errors: "Disk errors", storage_worn: "Disk wearing out",
-                    app_crashed: "App crashed", app_stuck: "App not responding" };
+                    app_crashed: "App crashed", app_stuck: "App not responding",
+                    watchdog_reset: "Reset itself after a hang" };
 const WARN_SHORT = { hot: "Hot", disk: "Disk", mem: "RAM", throttled: "Throttled", agent_outdated: "Old agent",
                      wifi_weak: "Weak Wi-Fi", storage_readonly: "Read-only", storage_errors: "Disk errors", storage_worn: "Worn",
-                     app_crashed: "App crashed", app_stuck: "App stuck" };
+                     app_crashed: "App crashed", app_stuck: "App stuck", watchdog_reset: "Hang reset" };
 const WARN_LEVEL = (w) => (["hot", "throttled", "storage_readonly", "storage_errors", "app_crashed", "app_stuck"].includes(w) ? "bad" : "warn");
 const STATUS_TEXT = { online: "Online", offline: "Offline", auth_failed: "Token rejected" };
 
@@ -580,7 +581,7 @@ function renderPeripherals(p) {
 
 const EVENT_TEXT = (e) => {
   if (e.kind === "offline") return e.status === "auth_failed" ? "Stopped accepting the token" : "Went offline";
-  if (e.kind === "online") return `Back online after ${duration(e.down_s)} (${e.cause === "reboot" ? "rebooted" : "network dropout"})`;
+  if (e.kind === "online") return `Back online after ${duration(e.down_s)} (${e.cause === "reboot" ? "rebooted" : e.cause === "watchdog" ? "hung and reset itself" : "network dropout"})`;
   if (e.kind === "action") return `${e.what[0].toUpperCase()}${e.what.slice(1)} from the dashboard${e.ok ? "" : ` failed: ${e.error || ""}`}`;
   return e.kind;
 };

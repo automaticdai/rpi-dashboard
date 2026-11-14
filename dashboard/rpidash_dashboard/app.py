@@ -93,6 +93,8 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             down_s = max(0, int((datetime.now(timezone.utc) - datetime.fromisoformat(last["at"])).total_seconds()))
             uptime = (live or {}).get("uptime_s")
             cause = "reboot" if isinstance(uptime, (int, float)) and uptime < down_s + 120 else "network"
+            if cause == "reboot" and (live or {}).get("reset_reason") == "watchdog":
+                cause = "watchdog"  # a Pico that hung and reset itself
             events.add(pi.id, "online", down_s=down_s, cause=cause)
     log = logging.getLogger("rpidash_dashboard")
 
@@ -208,6 +210,8 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
             app_state = (live.get("app") or {}).get("state")  # a Pico's application on core 1
             if app_state in ("crashed", "stuck"):
                 warnings.append(f"app_{app_state}")
+            if live.get("reset_reason") == "watchdog":
+                warnings.append("watchdog_reset")
         track_status(pi, status, live)
         return {"id": pi.id, "hostname": pi.hostname, "host": pi.host, "status": status, "live": live,
                 "spec": pi.spec, "last_seen": pi.last_seen, "warnings": warnings}

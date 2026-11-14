@@ -10,7 +10,8 @@ Pico's page (refreshed about once a second). Crashes are caught and shown there 
 Which core:
   CORE = 0 (default, recommended): step() takes turns with the agent on core 0. Reliable. A slow
       step() delays the web server, and steps can start tens of ms late while it answers
-      requests, so keep each step to a few ms.
+      requests, so keep each step to a few ms. A step that blocks for 8 s makes the watchdog
+      reset the Pico.
   CORE = 1 (experimental): step() runs on its own core, with ~1 ms timing. But with MicroPython
       1.29, a busy thread on core 1 plus Wi-Fi traffic has hard-locked the Pico (it needed
       unplugging), and even a light one makes the agent use about twice the CPU. Only for

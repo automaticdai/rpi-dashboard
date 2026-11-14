@@ -24,6 +24,19 @@ def test_dropout_vs_reboot(make_client):
     assert ev["summary"]["A"]["longest_outage_s"] >= 0
 
 
+def test_a_pico_that_hung_and_reset_itself(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("P", "10.0.0.1")])
+    with c:
+        c.get("/api/pis")
+        fake.behaviours["10.0.0.1"] = "down"; c.get("/api/pis")
+        fake.behaviours["10.0.0.1"] = "ok"; fake.uptime = 3.0; fake.reset_reason = "watchdog"
+        p = c.get("/api/pis").json()[0]
+        ev = events(c)
+    assert ev["events"][0]["kind"] == "online" and ev["events"][0]["cause"] == "watchdog"
+    assert ev["summary"]["P"]["reboots"] == 1 and ev["summary"]["P"]["dropouts"] == 0
+    assert "watchdog_reset" in p["warnings"]
+
+
 def test_actions_are_logged(make_client):
     c, _, _ = make_client({"10.0.0.1": "ok"}, pis=[make_pi("A", "10.0.0.1")])
     with c:
