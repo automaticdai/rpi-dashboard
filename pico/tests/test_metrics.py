@@ -30,7 +30,7 @@ def metrics(monkeypatch):
 
 def fill(m, h, start, seconds):
     for t in range(start, start + seconds, m.INTERVAL_S):
-        h.add(m.sample(t))
+        h.add(m.sample(t, (20.0, 60.0)))
     return start + seconds - m.INTERVAL_S
 
 
@@ -62,6 +62,23 @@ def test_empty_history(metrics):
     assert q["since"] is None and q["ts"] == []
 
 
-def test_sample_has_every_agent_field(metrics):
+def test_sample_has_every_agent_field_plus_per_core_cpu(metrics):
     from rpidash_agent.collect import FIELDS  # the Linux agent's sample, which the dashboard reads
-    assert set(metrics.sample(1)) == set(FIELDS)
+    s = metrics.sample(1, (10.0, 30.0))
+    assert set(s) == set(FIELDS) | {"cpu_cores"}
+    assert s["cpu_pct"] == 20.0 and s["cpu_cores"] == [10.0, 30.0]
+    assert metrics.sample(1)["cpu_pct"] is None
+
+
+@pytest.mark.parametrize("rng", ["1h", "7d"])
+def test_history_keeps_cpu_per_core(metrics, rng):
+    h = metrics.History()
+    now = fill(metrics, h, 1_794_600_000, 2 * 86400)
+    q = h.query(rng, now)
+    assert set(q["cpu0_pct"]) == {20.0} and set(q["cpu1_pct"]) == {60.0} and set(q["cpu_pct"]) == {40.0}
+
+
+def test_readings_before_cpu_is_measured_have_no_cpu(metrics):
+    h = metrics.History()
+    h.add(metrics.sample(1_794_600_000))
+    assert h.query("1h", 1_794_600_000)["cpu_pct"] == [None]

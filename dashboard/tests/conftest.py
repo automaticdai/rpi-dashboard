@@ -36,6 +36,7 @@ class FakeAgents:
         self.uptime = 5.0
         self.link = {"interface": "wlan0", "kind": "Wi-Fi", "signal_dbm": -50}
         self.storage_warnings = []
+        self.app_status = None  # a Pico's /live "app"
 
     def agent_id(self, host):
         return self.ids.get(host, "ID-" + host)
@@ -79,7 +80,7 @@ class FakeAgents:
         if p == "/live":
             return httpx.Response(200, json={"id": self.agent_id(req.url.host), "version": EXPECTED_AGENT_VERSION, "sample": SAMPLE, "top": [], "services": [],
                                              "uptime_s": self.uptime, "link": self.link,
-                                             "storage_warnings": self.storage_warnings})
+                                             "storage_warnings": self.storage_warnings, "app": self.app_status})
         if p == "/history":
             return httpx.Response(200, json={"since": 0, "ts": [1.0], "cpu_pct": [5.0]})
         return httpx.Response(200, json={"ok": True, "output": ""})

@@ -147,10 +147,12 @@ function hardwareLine(spec, s) {
 
 const WARN_TEXT = { hot: "Running hot", disk: "Disk nearly full", mem: "RAM nearly full", throttled: "Throttled or under-voltage",
                     agent_outdated: "Agent out of date", wifi_weak: "Weak Wi-Fi", storage_readonly: "Disk read-only",
-                    storage_errors: "Disk errors", storage_worn: "Disk wearing out" };
+                    storage_errors: "Disk errors", storage_worn: "Disk wearing out",
+                    app_crashed: "App crashed", app_stuck: "App not responding" };
 const WARN_SHORT = { hot: "Hot", disk: "Disk", mem: "RAM", throttled: "Throttled", agent_outdated: "Old agent",
-                     wifi_weak: "Weak Wi-Fi", storage_readonly: "Read-only", storage_errors: "Disk errors", storage_worn: "Worn" };
-const WARN_LEVEL = (w) => (["hot", "throttled", "storage_readonly", "storage_errors"].includes(w) ? "bad" : "warn");
+                     wifi_weak: "Weak Wi-Fi", storage_readonly: "Read-only", storage_errors: "Disk errors", storage_worn: "Worn",
+                     app_crashed: "App crashed", app_stuck: "App stuck" };
+const WARN_LEVEL = (w) => (["hot", "throttled", "storage_readonly", "storage_errors", "app_crashed", "app_stuck"].includes(w) ? "bad" : "warn");
 const STATUS_TEXT = { online: "Online", offline: "Offline", auth_failed: "Token rejected" };
 
 // ---------- overview ----------
@@ -171,7 +173,7 @@ function card(p) {
   if (h) el.style.setProperty("--heat", h);
   let body;
   if (s && isMcu(spec)) {
-    body = `<div class="bars">${bar("RAM", memPct(s), usedOf(s.mem_used, ramTotal(spec, s)))}${bar("Flash", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size))}</div>
+    body = `<div class="bars">${s.cpu_pct != null ? bar("CPU", s.cpu_pct) : ""}${bar("RAM", memPct(s), usedOf(s.mem_used, ramTotal(spec, s)))}${bar("Flash", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size))}</div>
       <div class="meta"><span>${wifiText(s.wifi_dbm)}</span><span>up ${duration(p.live.uptime_s)}</span></div>`;
   } else if (s) {
     body = `<div class="bars">${bar("CPU", s.cpu_pct)}${bar("RAM", memPct(s), usedOf(s.mem_used, ramTotal(spec, s)))}${bar("Disk", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size))}</div>
@@ -279,7 +281,7 @@ function listRow(p) {
     <span class="cell name"><span class="dot ${p.status}"></span><a class="stretch" href="/pi/${encodeURIComponent(p.id)}" draggable="false">${esc(p.hostname)}</a>
       <span class="sub">${esc(spec.model || p.host)}<br>${esc(hardwareLine(spec, s))}</span></span>
     <span class="cell temp num">${s ? temp(s.temp_c) : "–"}</span>
-    ${s && !isMcu(spec) ? usage("CPU", s.cpu_pct, "") : `<span class="cell"></span>`}
+    ${s && s.cpu_pct != null ? usage("CPU", s.cpu_pct, "") : `<span class="cell"></span>`}
     ${s ? usage("RAM", memPct(s), usedOf(s.mem_used, ramTotal(spec, s))) : `<span class="cell"></span>`}
     ${s ? usage(isMcu(spec) ? "Flash" : "Disk", s.disk_pct, usedOf(spec.root_size && (s.disk_pct / 100) * spec.root_size, spec.root_size)) : `<span class="cell"></span>`}
     <span class="cell net">${!s ? "" : isMcu(spec) ? esc(wifiText(s.wifi_dbm)) : `↓ ${rate(s.net_rx_bps)}<br>↑ ${rate(s.net_tx_bps)}`}</span>
@@ -604,16 +606,19 @@ function makeChart(id, datasets, opts = {}) {
       plugins: { legend: { display: datasets.length > 1, labels: { color: ink, boxWidth: 12 } } },
       scales: {
         x: { ticks: { color: ink, maxTicksLimit: 6, maxRotation: 0 }, grid: { color: line } },
-        y: { ticks: { color: ink, callback: opts.tick }, grid: { color: line }, min: opts.min, max: opts.max },
+        // An explicit callback: undefined would replace Chart.js's own number formatting (28.400000000000006).
+        y: { ticks: { color: ink, ...(opts.tick ? { callback: opts.tick } : {}) }, grid: { color: line }, min: opts.min, max: opts.max },
       },
     },
   });
 }
 
-function initCharts() {
+function initCharts(mcu = false) {
   const accent = cssVar("--accent"), bad = cssVar("--bad"), ok = cssVar("--ok");
   charts.temp = makeChart("c-temp", [{ label: "°C", borderColor: bad }]);
-  charts.cpu = makeChart("c-cpu", [{ label: "CPU", borderColor: accent }], { min: 0, max: 100 });
+  charts.cpu = mcu
+    ? makeChart("c-cpu", [{ label: "Core 0 (agent)", borderColor: accent }, { label: "Core 1 (app)", borderColor: ok }], { min: 0, max: 100 })
+    : makeChart("c-cpu", [{ label: "CPU", borderColor: accent }], { min: 0, max: 100 });
   charts.mem = makeChart("c-mem", [{ label: "RAM", borderColor: accent }], { min: 0, max: 100 });
   charts.disk = makeChart("c-disk", [{ label: "Disk", borderColor: accent }], { min: 0, max: 100 });
   charts.wifi = makeChart("c-wifi", [{ label: "dBm", borderColor: cssVar("--accent") }], { max: -20 });
@@ -639,7 +644,8 @@ async function loadHistory(id) {
   const set = (c, ...series) => { c.data.labels = labels; series.forEach((s, i) => (c.data.datasets[i].data = s || [])); c.update(); };
   const memTotal = h.mem_total || [];
   set(charts.temp, h.temp_c);
-  set(charts.cpu, h.cpu_pct);
+  if (charts.cpu.data.datasets.length === 2) set(charts.cpu, h.cpu0_pct, h.cpu1_pct);
+  else set(charts.cpu, h.cpu_pct);
   set(charts.mem, (h.mem_used || []).map((u, i) => (memTotal[i] ? (u / memTotal[i]) * 100 : null)));
   set(charts.disk, h.disk_pct);
   set(charts.net, h.net_rx_bps, h.net_tx_bps);
@@ -671,6 +677,7 @@ function renderLive(p) {
   const s = p.live && p.live.sample;
   const rows = s && isMcu(p.spec) ? [
     ["Status", STATUS_TEXT[p.status]], ["Temperature", `${temp(s.temp_c)} (chip sensor, ±2°)`],
+    ...(s.cpu_pct != null ? [["CPU", coresText(s)]] : []),
     ["RAM", `${bytes(s.mem_used)} of ${bytes(s.mem_total)} (MicroPython heap)`], ["Flash", pct(s.disk_pct)],
     ["Link", linkText(p.live.link)], ["Uptime", duration(p.live.uptime_s)],
   ] : s ? [
@@ -682,6 +689,7 @@ function renderLive(p) {
     ...(typeof s.power_w === "number" ? [["Board power", watts(s.power_w)]] : []),
     ["Throttling", typeof s.throttled !== "number" ? "Unknown" : s.throttled ? `Yes (0x${s.throttled.toString(16)})` : "None"],
   ] : [["Status", STATUS_TEXT[p.status]], ["Last seen", ago(p.last_seen)]];
+  renderApp(p);
   $("#live").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("") +
     (p.warnings.length ? `<dt>Warnings</dt><dd>${p.warnings.map((w) => WARN_TEXT[w] || esc(w)).join(", ")}</dd>` : "");
 
@@ -701,6 +709,35 @@ function renderLive(p) {
   $("#top tbody").innerHTML = top.map((t) => `<tr><td>${esc(t.name)} <span class="muted">${esc(t.pid)}</span></td><td class="num">${fixed(t.cpu_pct, 1)}%</td><td class="num">${fixed(t.mem_pct, 1)}%</td></tr>`).join("");
 }
 
+// A Pico: core 0 runs the agent, core 1 the application (app.py).
+function coresText(s) {
+  const c = Array.isArray(s.cpu_cores) ? s.cpu_cores : [];
+  return c.length === 2 ? `${pct(s.cpu_pct)} (core 0, agent: ${pct(c[0])}; core 1, app: ${pct(c[1])})` : pct(s.cpu_pct);
+}
+
+const APP_STATE = { starting: "Starting", running: "Running", crashed: "Crashed", stuck: "Not responding (stuck in setup() or step())",
+                    restarting: "Restarting", stopped: "Stopped" };
+
+function renderApp(p) {
+  const a = p.live && p.live.app;
+  const sec = $("#app").closest("section");
+  sec.hidden = !(a && typeof a === "object");
+  if (sec.hidden) return;
+  const cores = (p.live.sample || {}).cpu_cores;
+  const bad = a.state === "crashed" || a.state === "stuck";
+  const rows = [
+    ["Name", a.name], ["State", APP_STATE[a.state] || a.state],
+    ["Running for", duration(a.uptime_s)],
+    ["Steps", `${typeof a.steps === "number" ? a.steps.toLocaleString() : "–"} (every ${a.period_ms} ms)`],
+    ["Core 1 CPU", Array.isArray(cores) ? pct(cores[1]) : "–"],
+    ["Restarts", a.restarts],
+    ...Object.entries(a.values && typeof a.values === "object" ? a.values : {}).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : v]),
+  ];
+  $("#app").innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd${k === "State" && bad ? ' class="bad-text"' : ""}>${esc(v)}</dd>`).join("");
+  $("#app-error").hidden = !a.error;
+  $("#app-error").textContent = a.error || "";
+}
+
 function renderSpec(spec) {
   if (!spec) return;
   const ifaces = (spec.interfaces || []).map((i) => `${i.name}: ${i.ipv4 || "no IPv4"}${i.mac ? ` (${i.mac})` : ""}`).join("\n");
@@ -714,11 +751,12 @@ function renderSpec(spec) {
   $("#spec tbody").innerHTML = rows.filter(([, v]) => v).map(([k, v]) => `<tr><th>${k}</th><td style="white-space:pre-line">${esc(v)}</td></tr>`).join("");
 }
 
-// Hide what a Pico can't fill: the panels, the Shut down button and the CPU, network and fan charts.
+// Hide what a Pico can't fill: the panels, the Shut down button and the network and fan charts.
 function hideForMcu() {
   for (const sel of ["#services", "#top", "#storage", "#peripherals"]) $(sel).closest("section").hidden = true;
   $("#shutdown").hidden = true;
-  for (const sel of ["#c-cpu", "#c-net", "#c-fan"]) $(sel).closest("figure").hidden = true;
+  for (const sel of ["#c-net", "#c-fan"]) $(sel).closest("figure").hidden = true;
+  $("#c-cpu").closest("figure").querySelector("figcaption").textContent = "CPU % per core";
   $("#c-disk").closest("figure").querySelector("figcaption").textContent = "Flash %";
 }
 
@@ -738,7 +776,17 @@ function detail(id, spec) {
   };
   loadExtras();
   setInterval(loadExtras, 60000);
-  initCharts();
+  initCharts(mcu);
+  $("#app-restart").addEventListener("click", async (e) => {
+    const b = e.currentTarget;
+    const name = document.querySelector(".pi-title").textContent.trim();
+    if (!confirm(`Restart the application on ${name}? Its stop() and setup() run again; the agent keeps running.`)) return;
+    b.disabled = true;
+    try { await api("POST", `/api/pis/${encodeURIComponent(id)}/app/restart`); toast(`Restarting the application on ${name}`); }
+    catch (err) { toast(`App restart failed: ${err.message}`); }
+    b.disabled = false;
+    setTimeout(refresh, 1000);
+  });
   const refresh = async () => {
     try {
       const pis = await api("GET", "/api/pis");

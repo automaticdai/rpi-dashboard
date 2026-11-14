@@ -8,7 +8,7 @@ import machine
 PORT = 8765
 DEVICE_ID = machine.unique_id().hex()
 _REASON = {200: "OK", 202: "Accepted", 400: "Bad Request", 401: "Unauthorized", 404: "Not Found",
-           405: "Method Not Allowed", 503: "Service Unavailable"}
+           405: "Method Not Allowed", 409: "Conflict", 503: "Service Unavailable"}
 # Things the Linux agent does that a Pico can't: answered with a clear message, not a bare 404.
 _UNSUPPORTED = ("/shutdown", "/agent/restart", "/bench", "/stress", "/stress/stop", "/storage",
                 "/peripherals")
@@ -27,7 +27,8 @@ def _query(target):
 
 class Server:
     def __init__(self, agent, token):
-        """agent provides: hostname, version, history, latest, fresh_sample(), spec(), uptime()."""
+        """agent provides: hostname, version, history, latest, fresh_sample(), spec(), uptime(),
+        and runner (the core-1 app runner, or None)."""
         self.agent, self.token = agent, token.strip()
 
     def _route(self, method, path, params, authed):
@@ -37,7 +38,7 @@ class Server:
                 return 405, {"error": "method not allowed"}
             return 200, {"app": "rpidash-agent", "id": DEVICE_ID, "hostname": a.hostname,
                          "version": a.version, "kind": "mcu"}
-        known = path in ("/spec", "/live", "/now", "/history", "/reboot") or path in _UNSUPPORTED \
+        known = path in ("/spec", "/live", "/now", "/history", "/reboot", "/app/restart") or path in _UNSUPPORTED \
             or path.startswith("/services/")
         if not known:
             return 404, {"error": "not found"}
@@ -49,6 +50,14 @@ class Server:
             if method != "POST":
                 return 405, {"error": "method not allowed"}
             asyncio.create_task(_reset_soon())
+            return 202, {"ok": True}
+        if path == "/app/restart":
+            if method != "POST":
+                return 405, {"error": "method not allowed"}
+            if a.runner is None:
+                return 400, {"error": "no application is running on core 1"}
+            if not a.runner.request_restart():
+                return 409, {"error": "the application is stuck in setup() or step() and can't be restarted; reboot the Pico"}
             return 202, {"ok": True}
         if method != "GET":
             return 405, {"error": "method not allowed"}
@@ -62,7 +71,7 @@ class Server:
                          "services": [], "uptime_s": up, "agent_uptime_s": up, "stress": None,
                          "link": {"interface": "wlan0", "kind": "Wi-Fi",
                                   "signal_dbm": (a.latest or {}).get("wifi_dbm")},
-                         "storage_warnings": []}
+                         "storage_warnings": [], "app": a.runner.status() if a.runner else None}
         rng = params.get("range", "1h")
         if rng not in _RANGES:
             return 400, {"error": "range must be one of %s" % sorted(_RANGES)}

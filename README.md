@@ -176,6 +176,11 @@ another), and the code is uploaded through that Pi:
    REPL only. Connecting with mpremote stops the program on the Pico; reset it to start again.
 5. Add it on the dashboard by its hostname or IP, like a Pi.
 
+The agent runs on core 0; your own code goes in `pico/app.py` and runs on core 1 (the file
+explains `setup()`, `step()`, `PERIOD_MS` and what core 1 mustn't touch). The Pico's page
+shows its state, the values it publishes and any crash, with a Restart button; CPU use is
+shown per core. A crash or a `step()` that never returns shows as a warning on the card.
+
 The Pico's version (`VERSION` in `pico/main.py`) is separate from the Pis' and is checked
 against `EXPECTED_PICO_VERSION` in `dashboard/rpidash_dashboard/__init__.py`.
 

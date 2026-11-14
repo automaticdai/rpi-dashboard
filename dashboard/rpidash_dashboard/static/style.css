@@ -213,6 +213,10 @@ td.stale { color: var(--off); text-decoration: line-through; text-decoration-thi
 .live { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
 .live dt { color: var(--muted); }
 .live dd { margin: 0; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bad-text { color: var(--bad); font-weight: 600; }
+.app-error { margin: 10px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--bg); color: var(--bad);
+  font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 .table th { text-align: left; color: var(--muted); font-weight: 400; }
 .table td, .table th { padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }

@@ -44,13 +44,16 @@ def flash():
     return (100 * (total - s[0] * s[3]) / total if total else 0.0), total
 
 
-def sample(now):
+def sample(now, cores=None):
+    """cores: (core 0 %, core 1 %) or None. cpu_pct is their average, like a Pi's overall CPU %."""
     used, total = heap()
     return {
         "ts": now, "temp_c": temperature(), "mem_used": used, "mem_total": total,
         "disk_pct": round(flash()[0], 1), "wifi_dbm": wifi.rssi(),
+        "cpu_pct": round((cores[0] + cores[1]) / 2, 1) if cores else None,
+        "cpu_cores": list(cores) if cores else None,  # extra to the Linux agent's fields
         # Not measured on a microcontroller: no OS, no network counters, no fan, no throttling.
-        "cpu_pct": None, "load1": None, "swap_used": None, "net_rx_bps": None, "net_tx_bps": None,
+        "load1": None, "swap_used": None, "net_rx_bps": None, "net_tx_bps": None,
         "throttled": None, "fan_rpm": None, "power_w": None, "disk_read_bps": None, "disk_write_bps": None,
     }
 
@@ -78,7 +81,7 @@ def spec(device_id, hostname, version, boot_time):
 
 class _Ring:
     """Fixed-size history: one compact array per field."""
-    FIELDS = ("ts", "temp_c", "mem_used", "disk_pct", "wifi_dbm")
+    FIELDS = ("ts", "temp_c", "mem_used", "disk_pct", "wifi_dbm", "cpu0", "cpu1")
 
     def __init__(self, capacity):
         self.capacity, self.idx, self.count = capacity, 0, 0
@@ -88,7 +91,7 @@ class _Ring:
 
     def add(self, row):
         for f in self.FIELDS:
-            v = row[f]
+            v = row.get(f)
             self.a[f][self.idx] = _NAN if v is None else v
         self.idx = (self.idx + 1) % self.capacity
         self.count = min(self.count + 1, self.capacity)
@@ -114,7 +117,9 @@ class History:
     def add(self, s):
         if self.first_ts is None:
             self.first_ts = s["ts"]
-        self.fine.add(s)
+        cores = s.get("cpu_cores") or (None, None)
+        self.fine.add({"ts": s["ts"], "temp_c": s["temp_c"], "mem_used": s["mem_used"], "disk_pct": s["disk_pct"],
+                       "wifi_dbm": s["wifi_dbm"], "cpu0": cores[0], "cpu1": cores[1]})
         self.mem_total = s["mem_total"]
         slot = s["ts"] // COARSE_S * COARSE_S
         acc = self._acc
@@ -123,7 +128,7 @@ class History:
             acc = None
         if acc is None:
             acc = self._acc = {"ts": slot, "n": 0, "temp_c": None, "mem_used": 0, "disk_pct": 0.0,
-                               "wifi_sum": 0, "wifi_n": 0}
+                               "wifi_sum": 0, "wifi_n": 0, "cpu0": 0.0, "cpu1": 0.0, "cpu_n": 0}
         acc["n"] += 1
         if s["temp_c"] is not None:  # hottest reading, like the Linux agent's charts
             acc["temp_c"] = s["temp_c"] if acc["temp_c"] is None else max(acc["temp_c"], s["temp_c"])
@@ -132,15 +137,21 @@ class History:
         if s["wifi_dbm"] is not None:
             acc["wifi_sum"] += s["wifi_dbm"]
             acc["wifi_n"] += 1
+        if cores[0] is not None:
+            acc["cpu0"] += cores[0]
+            acc["cpu1"] += cores[1]
+            acc["cpu_n"] += 1
 
     def _flush(self):
         a = self._acc
         self.coarse.add({"ts": a["ts"], "temp_c": a["temp_c"], "mem_used": a["mem_used"] // a["n"],
                          "disk_pct": a["disk_pct"],
-                         "wifi_dbm": a["wifi_sum"] / a["wifi_n"] if a["wifi_n"] else None})
+                         "wifi_dbm": a["wifi_sum"] / a["wifi_n"] if a["wifi_n"] else None,
+                         "cpu0": a["cpu0"] / a["cpu_n"] if a["cpu_n"] else None,
+                         "cpu1": a["cpu1"] / a["cpu_n"] if a["cpu_n"] else None})
 
     def _points(self, span):
-        """(ts, temp, mem_used, disk_pct, wifi) from oldest to newest: 10 s readings for the last
+        """(ts, temp, mem_used, disk_pct, wifi, cpu0, cpu1) from oldest to newest: 10 s readings for the last
         hour, otherwise 5-minute summaries followed by the readings not yet summarised."""
         rings = [self.fine] if span <= 3600 else [self.coarse, self.fine]
         after = -1
@@ -149,7 +160,8 @@ class History:
             for i in ring.rows():
                 ts = a["ts"][i]
                 if ts > after:
-                    yield ts, a["temp_c"][i], a["mem_used"][i], a["disk_pct"][i], a["wifi_dbm"][i]
+                    yield (ts, a["temp_c"][i], a["mem_used"][i], a["disk_pct"][i], a["wifi_dbm"][i],
+                           a["cpu0"][i], a["cpu1"][i])
             if ring is self.coarse and ring.count:
                 after = a["ts"][(ring.idx - 1) % ring.capacity] + COARSE_S - 1
 
@@ -158,7 +170,7 @@ class History:
         span = RANGES[range_name]
         olds = [t for t in (self.coarse.oldest(), self.fine.oldest()) if t is not None]
         out = {"since": max(min(olds), self.first_ts) if olds else None, "ts": [], "temp_c": [], "mem_used": [], "mem_total": [],
-               "disk_pct": [], "wifi_dbm": []}
+               "disk_pct": [], "wifi_dbm": [], "cpu_pct": [], "cpu0_pct": [], "cpu1_pct": []}
         t0, width = now - span, span / POINTS
         bucket, rows = None, []
 
@@ -171,6 +183,12 @@ class History:
             out["mem_total"].append(self.mem_total)
             out["disk_pct"].append(round(sum(r[3] for r in rows) / len(rows), 1))
             out["wifi_dbm"].append(round(sum(wifis) / len(wifis), 1) if wifis else None)
+            c = [r for r in rows if not _isnan(r[5])]
+            c0 = round(sum(r[5] for r in c) / len(c), 1) if c else None
+            c1 = round(sum(r[6] for r in c) / len(c), 1) if c else None
+            out["cpu0_pct"].append(c0)
+            out["cpu1_pct"].append(c1)
+            out["cpu_pct"].append(round((c0 + c1) / 2, 1) if c else None)
 
         for r in self._points(span):
             if r[0] < t0:

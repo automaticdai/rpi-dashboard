@@ -78,6 +78,10 @@ class AgentClient:
     async def restart_agent(self, host: str, port: int | None = None) -> dict:
         return await self._req("POST", host, "/agent/restart", port=port)
 
+    async def restart_app(self, host: str, port: int | None = None) -> dict:
+        """A Pico's application on core 1."""
+        return await self._req("POST", host, "/app/restart", port=port)
+
     async def service_action(self, host: str, entry: str, action: str, port: int | None = None) -> dict:
         return await self._req("POST", host, f"/services/{quote(entry, safe='')}/{quote(action, safe='')}",
                                port=port)

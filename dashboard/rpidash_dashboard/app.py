@@ -205,6 +205,9 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
                     and link["signal_dbm"] <= cfg.warn_wifi_dbm:
                 warnings.append("wifi_weak")
             warnings += [w for w in live.get("storage_warnings") or [] if isinstance(w, str)]
+            app_state = (live.get("app") or {}).get("state")  # a Pico's application on core 1
+            if app_state in ("crashed", "stuck"):
+                warnings.append(f"app_{app_state}")
         track_status(pi, status, live)
         return {"id": pi.id, "hostname": pi.hostname, "host": pi.host, "status": status, "live": live,
                 "spec": pi.spec, "last_seen": pi.last_seen, "warnings": warnings}
@@ -422,6 +425,13 @@ def create_app(cfg: DashboardConfig, client: AgentClient | None = None,
     async def restart_agent(pi_id: str):
         pi = await verified_pi(pi_id)
         return await agent_call(agents.restart_agent(pi.host, pi.port))
+
+    @app.post("/api/pis/{pi_id}/app/restart")
+    async def restart_app(pi_id: str):
+        async def go():
+            pi = await verified_pi(pi_id)
+            return await agent_call(agents.restart_app(pi.host, pi.port))
+        return await logged(pi_id, "app restart", go)
 
     @app.post("/api/actions")
     async def bulk_action(body: BulkAction):

@@ -424,3 +424,28 @@ def test_picos_are_left_out_of_the_benchmark_table(make_client):
     with c:
         rows = c.get("/api/bench").json()["rows"]
     assert [r["id"] for r in rows] == ["A"]
+
+
+def test_pico_app_restart_proxy_and_logged(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("P", "10.0.0.1")])
+    with c:
+        assert c.post("/api/pis/P/app/restart").status_code == 200
+        evs = c.get("/api/events?pi=P").json()["events"]
+    assert [p for p, _ in fake.posted] == ["/app/restart"]
+    assert any(e.get("what") == "app restart" and e["ok"] for e in evs)
+
+
+def test_pico_app_restart_refused_when_address_now_belongs_to_another_pi(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("P", "10.0.0.1")], ids={"10.0.0.1": "B"})
+    with c:
+        assert c.post("/api/pis/P/app/restart").status_code == 409
+    assert not fake.posted
+
+
+def test_pico_app_crashed_or_stuck_is_a_warning(make_client):
+    c, _, fake = make_client({"10.0.0.1": "ok"}, pis=[make_pi("P", "10.0.0.1")])
+    with c:
+        for state, warning in (("running", None), ("crashed", "app_crashed"), ("stuck", "app_stuck")):
+            fake.app_status = {"name": "demo", "state": state}
+            w = c.get("/api/pis").json()[0]["warnings"]
+            assert w == ([warning] if warning else []), state
