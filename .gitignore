@@ -7,3 +7,6 @@ bench.json*
 events.json*
 dashboard.toml
 .pytest_cache/
+
+# Pico Wi-Fi credentials
+pico/wifi_config.py
