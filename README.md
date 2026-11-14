@@ -22,9 +22,9 @@ Drag a card or row (or focus its ⠿ handle and use the arrow keys) to reorder; 
 saved. Tick Pis (or **Select all**) to **Reboot**, **Shut down** or **Run benchmarks** on all of
 them at once; each Pi is still checked to be the same Pi before anything happens to it. A Pi whose agent is older than the dashboard shows **Agent out of date**.
 
-![Overview in Cards view: one card per Pi with its board, OS, cores and disk type, temperature, CPU, RAM and disk, and a coloured edge from green (cool) to red (hot)](docs/screenshots/overview.png)
+![Overview in Cards view: one card per device (four Pis and a Pico 2 W) with its board, OS, cores and disk type, temperature, CPU, RAM and disk, and a coloured edge from green (cool) to red (hot); two Pis are offline](docs/screenshots/overview.png)
 
-![Overview in Table view: one sortable row per Pi with model, OS, temperature, CPU, load, RAM, disk, network, fan, uptime and warnings](docs/screenshots/overview-table.png)
+![Overview in Table view: one sortable row per device with model, OS, status, temperature, CPU, load, RAM, disk, network, power, fan, uptime and warnings](docs/screenshots/overview-table.png)
 
 ### Detail page
 
@@ -33,7 +33,7 @@ Live values, the ten busiest processes, allowlisted services with Start/Stop/Res
 hardware details, **Reboot** and **Shut down**, and charts for temperature, CPU, RAM, disk,
 network and fan speed over 1 h, 6 h, 24 h or 7 days.
 
-![Detail page for rpi-cm5: live values, top processes, hardware (serial and MAC addresses hidden), Reboot and Shut down buttons, and one-hour charts](docs/screenshots/pi-detail.png)
+![Detail page for rpi-cm5: live values, services, top processes, hardware (serial and MAC addresses hidden), storage health, peripherals, recent events, Reboot and Shut down buttons, and one-hour charts](docs/screenshots/pi-detail.png)
 
 ### Benchmarks
 
@@ -48,7 +48,7 @@ you can come back to it later, and a round only replaces the numbers it measured
 Switch the table between measured values and **× slowest Pi**, where each column is divided
 by its lowest-performing Pi (1.0×).
 
-![Benchmarks page: a table of CPU and disk results for five Pis, with the best result in each column in bold](docs/screenshots/benchmarks.png)
+![Benchmarks page: a table of CPU, RAM and disk results for five Pis, with the best result in each column in bold](docs/screenshots/benchmarks.png)
 
 ### Stress
 
@@ -61,7 +61,7 @@ large package-index files from Debian and Ubuntu mirrors in rotation (mirrors ex
 big downloads). Every load stops by itself after the time you choose (1 to 30 minutes), or
 when you press Stop.
 
-![Stress tab during a 2-minute CPU, RAM and network load on all five Pis: live charts of CPU, RAM, temperature and network download, one line per Pi](docs/screenshots/stress.png)
+![Stress tab during a 2-minute CPU, RAM and network load on the three online Pis: live charts of CPU, RAM, temperature, disk I/O, network download and board power, one line per Pi](docs/screenshots/stress.png)
 
 ## How it works
 
