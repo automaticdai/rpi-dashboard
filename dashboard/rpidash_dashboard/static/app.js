@@ -762,6 +762,28 @@ function hideForMcu() {
   $("#c-disk").closest("figure").querySelector("figcaption").textContent = "Flash %";
 }
 
+// Info / History tabs. The choice lives in the URL hash so a reload or a shared link keeps it.
+function initDetailTabs() {
+  const tabs = [...document.querySelectorAll('.tabs [role="tab"]')];
+  const show = (tab, focus) => {
+    for (const t of tabs) {
+      const on = t === tab;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    }
+    if (focus) tab.focus();
+  };
+  tabs.forEach((t, i) => {
+    t.addEventListener("click", () => { show(t); history.replaceState(null, "", t.id === "tab-history" ? "#history" : location.pathname + location.search); });
+    t.addEventListener("keydown", (e) => {
+      const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (d) { const n = tabs[(i + d + tabs.length) % tabs.length]; show(n, true); n.click(); }
+    });
+  });
+  if (location.hash === "#history") show($("#tab-history"));
+}
+
 function detail(id, spec) {
   renderSpec(spec);
   const mcu = isMcu(spec);
@@ -772,7 +794,7 @@ function detail(id, spec) {
       api("GET", `/api/pis/${encodeURIComponent(id)}/peripherals`).then(renderPeripherals).catch(() => {});
     }
     api("GET", `/api/events?pi=${encodeURIComponent(id)}&days=30`).then((r) => {
-      $("#pi-events tbody").innerHTML = eventRows(r.events.slice(0, 15), false, {});
+      $("#pi-events tbody").innerHTML = eventRows(r.events.slice(0, 8), false, {});
       $("#no-events").hidden = r.events.length > 0;
     }).catch(() => {});
   };
@@ -829,8 +851,9 @@ function detail(id, spec) {
     try { await api("POST", `/api/pis/${encodeURIComponent(id)}/shutdown`); toast(`Shutting down ${name}`); }
     catch (err) { toast(`Shut down failed: ${err.message}`); }
   });
-  document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
-    document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  initDetailTabs();
+  document.querySelectorAll("#range button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("#range button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
     currentRange = b.dataset.range;
     loadHistory(id);
   }));

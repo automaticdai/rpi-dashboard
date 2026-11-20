@@ -9,7 +9,11 @@
   </div>
 {% endblock %}
 {% block main %}
-<div class="detail">
+<div class="tabs" role="tablist" aria-label="Pi views">
+  <button role="tab" id="tab-info" aria-controls="panel-info" aria-selected="true">Info</button>
+  <button role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false" tabindex="-1">History</button>
+</div>
+<div class="detail" id="panel-info" role="tabpanel" aria-labelledby="tab-info">
   <section class="panel">
     <h2>Now</h2>
     <dl id="live" class="live"></dl>
@@ -46,10 +50,9 @@
     <p id="no-events" class="muted" hidden>Nothing in the last 30 days. Events are recorded while the dashboard runs.</p>
   </section>
 </div>
-<section class="history">
+<section class="history" id="panel-history" role="tabpanel" aria-labelledby="tab-history" hidden>
   <div class="history-head">
-    <h2>History</h2>
-    <div class="seg" role="group" aria-label="Time range">
+    <div class="seg" id="range" role="group" aria-label="Time range">
       <button data-range="1h" aria-pressed="true">1h</button><button data-range="6h">6h</button><button data-range="24h">24h</button><button data-range="7d">7d</button>
     </div>
   </div>

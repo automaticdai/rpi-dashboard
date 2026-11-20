@@ -225,7 +225,12 @@ td.stale { color: var(--off); text-decoration: line-through; text-decoration-thi
 .state-active { color: var(--ok); }
 .state-failed { color: var(--bad); }
 
-.history { margin-top: 24px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent;
+  color: var(--muted); padding: 8px 14px; margin-bottom: -1px; font-weight: 500; }
+.tabs button:hover { color: var(--accent); }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.detail[hidden], .history[hidden] { display: none; }
 .history-head { display: flex; align-items: center; gap: 16px; }
 .seg { display: inline-flex; border: 1px solid var(--accent); border-radius: 8px; overflow: hidden; }
 .seg button { border: 0; border-radius: 0; background: transparent; color: var(--accent); padding: 5px 12px; }
