@@ -33,7 +33,12 @@ Live values, the ten busiest processes, allowlisted services with Start/Stop/Res
 hardware details, **Reboot** and **Shut down**, and charts for temperature, CPU, RAM, disk,
 network and fan speed over 1 h, 6 h, 24 h or 7 days.
 
-![Detail page for rpi-cm5: live values, services, top processes, hardware (serial and MAC addresses hidden), storage health, peripherals, recent events, Reboot and Shut down buttons, and one-hour charts](docs/screenshots/pi-detail.png)
+The page has two tabs: **Info** for the live panels and **History** for the charts
+(add `#history` to the URL to open it directly).
+
+![Info tab for rpi-5: live values, services, top processes, hardware (serial and MAC addresses hidden), storage health, peripherals, the last 8 events, and Reboot and Shut down buttons](docs/screenshots/pi-detail.png)
+
+![History tab for rpi-5: range buttons (1h, 6h, 24h, 7d) and one-hour charts of temperature, CPU, RAM, disk, network, Wi-Fi signal, board power and fan speed](docs/screenshots/pi-history.png)
 
 ### Benchmarks
 
