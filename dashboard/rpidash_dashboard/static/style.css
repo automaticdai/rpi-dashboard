@@ -105,11 +105,8 @@ main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 .chip.warn { color: var(--warn); }
 .chip.off { color: var(--muted); }
 .remove { position: relative; z-index: 1; margin-left: auto; }
-/* Cards: Remove only when the card is hovered or focused (always shown on touch screens). */
-@media (hover: hover) {
-  .card:not(.row) .remove { opacity: 0; }
-  .card:not(.row):hover .remove, .card:not(.row):focus-within .remove { opacity: 1; }
-}
+/* Cards and list rows: Remove only shows once the Pi's select box is ticked. */
+.card:not(:has(input.pick:checked)) .remove { visibility: hidden; }
 .card:not(.row) .card-foot:not(:has(.chips)) { margin-top: 0; min-height: 0; }
 
 .dot { display: inline-block; width: .7em; height: .7em; border-radius: 50%; background: var(--off); margin-right: .4em; }
